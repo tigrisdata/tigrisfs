@@ -32,7 +32,9 @@ import (
 )
 
 var DefaultLogConfig = &LogConfig{
-	Level: "info",
+	Level:  "info",
+	Format: "console",
+	Color:  false,
 }
 
 var (

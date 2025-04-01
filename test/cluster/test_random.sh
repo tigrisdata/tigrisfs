@@ -31,11 +31,12 @@ _cluster_setup() {
   mkdir -p "$TEST_ARTIFACTS/test_random"
   touch "$TEST_ARTIFACTS/test_random/log1" "$TEST_ARTIFACTS/test_random/log2" "$TEST_ARTIFACTS/test_random/log3"
 
-  opts="--debug_fuse --debug_grpc --log-format console --log-level debug --no-log-color"
+  #opts="--debug_fuse --debug_grpc --log-format console --log-level debug --no-log-color"
+  opts="--log-format console --log-level info --no-log-color"
   nodes="--cluster-peer=1:localhost:1337 --cluster-peer=2:localhost:1338 --cluster-peer=3:localhost:1339"
 
   MNT1=$(mktemp --suffix .node1 -d)
-  _mount "$MNT1" $opts -f --log-file="$TEST_ARTIFACTS/test_random/log1" --pprof=6060 --cluster-me=1:localhost:1337 $nodes #--debug_fuse --debug_grpc
+  _mount "$MNT1" $opts -f --log-file="$TEST_ARTIFACTS/test_random/log1" --pprof=6060 --cluster-me=1:localhost:1337 $nodes
 
   MNT2=$(mktemp --suffix .node2 -d)
   _mount "$MNT2" $opts -f --log-file="$TEST_ARTIFACTS/test_random/log2" --pprof=6070 --cluster-me=2:localhost:1338 $nodes

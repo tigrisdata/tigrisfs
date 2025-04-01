@@ -8,7 +8,7 @@ EnvironmentFile=-/etc/default/tigrisfs-%i
 #Environment=MOUNT_PREFIX=%h
 Type=oneshot
 ExecStartPre=/bin/mkdir -p ${MOUNT_PREFIX}/mnt/tigris/%i
-ExecStart=/usr/bin/mount -t fuse.tigrisfs %i ${MOUNT_PREFIX}/mnt/tigris/%i
+ExecStart=/usr/bin/mount ${OPTS} -t fuse.tigrisfs %i ${MOUNT_PREFIX}/mnt/tigris/%i
 ExecStop=/usr/bin/umount ${MOUNT_PREFIX}/mnt/tigris/%i
 RemainAfterExit=yes
 

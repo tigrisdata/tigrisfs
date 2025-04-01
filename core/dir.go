@@ -1864,10 +1864,12 @@ func (parent *Inode) insertSubTree(path string, obj *BlobItemOutput, dirs map[*I
 				inode.SetFromBlobItem(obj)
 				sealPastDirs(dirs, inode)
 			} else {
+				inode.mu.Lock()
 				now := time.Now()
 				if inode.AttrTime.Before(now) {
 					inode.SetAttrTime(now)
 				}
+				inode.mu.Unlock()
 			}
 
 			// mark this dir but don't seal anything else
@@ -1905,23 +1907,7 @@ func (parent *Inode) LookUpCached(name string) (inode *Inode, err error) {
 	parent.mu.Lock()
 	ok := false
 	inode = parent.findChildUnlocked(name)
-	if inode != nil {
-		ok = true
-		if expired(inode.AttrTime, parent.fs.flags.StatCacheTTL) {
-			ok = false
-			if atomic.LoadInt32(&inode.CacheState) != ST_CACHED ||
-				inode.isDir() && atomic.LoadInt64(&inode.dir.ModifiedChildren) > 0 {
-				// we have an open file handle, object
-				// in S3 may not represent the true
-				// state of the file anyway, so just
-				// return what we know which is
-				// potentially more accurate
-				ok = true
-			} else {
-				inode.logFuse("lookup expired")
-			}
-		}
-	} else {
+	if inode == nil {
 		ok = false
 		if parent.dir.DeletedChildren != nil {
 			if _, ok := parent.dir.DeletedChildren[name]; ok {
@@ -1936,7 +1922,30 @@ func (parent *Inode) LookUpCached(name string) (inode *Inode, err error) {
 			return nil, syscall.ENOENT
 		}
 	}
+
+	ttl := parent.fs.flags.StatCacheTTL
 	parent.mu.Unlock()
+
+	if inode != nil {
+		inode.mu.Lock()
+		ok = true
+		if expired(inode.AttrTime, ttl) {
+			ok = false
+			if atomic.LoadInt32(&inode.CacheState) != ST_CACHED ||
+				inode.isDir() && atomic.LoadInt64(&inode.dir.ModifiedChildren) > 0 {
+				// we have an open file handle, object
+				// in S3 may not represent the true
+				// state of the file anyway, so just
+				// return what we know which is
+				// potentially more accurate
+				ok = true
+			} else {
+				inode.logFuse("lookup expired")
+			}
+		}
+		inode.mu.Unlock()
+	}
+
 	if !ok {
 		inode, err = parent.recheckInode(inode, name)
 		err = mapAwsError(err)
@@ -1947,6 +1956,7 @@ func (parent *Inode) LookUpCached(name string) (inode *Inode, err error) {
 			return nil, syscall.ENOENT
 		}
 	}
+
 	return inode, nil
 }
 

@@ -29,7 +29,17 @@ import (
 	"github.com/tigrisdata/tigrisfs/core/cfg"
 )
 
+var (
+	triedDetect bool
+	detected    bool
+	localTigris bool
+)
+
 func tigrisDetected(flags *cfg.FlagStorage) (bool, bool) {
+	if triedDetect {
+		return detected, localTigris
+	}
+
 	endpoint := flags.Endpoint
 	if endpoint == "" {
 		endpoint = os.Getenv("AWS_ENDPOINT_URL")
@@ -42,7 +52,11 @@ func tigrisDetected(flags *cfg.FlagStorage) (bool, bool) {
 		return false, local
 	}
 
-	return strings.Contains(r.Header.Get("Server"), "Tigris"), local
+	triedDetect = true
+	localTigris = local
+	detected = r.StatusCode == http.StatusOK && strings.Contains(r.Header.Get("Server"), "Tigris")
+
+	return detected, local
 }
 
 func LocalTigrisDetected(flags *cfg.FlagStorage) bool {

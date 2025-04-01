@@ -8,3 +8,6 @@
 # Alternatively set name of the profile to read from AWS standard
 # location ~/.aws/config
 #AWS_PROFILE=
+
+# Mount options
+#OPTS="-o allow_other,uid=1000,gid=1000,umask=0002"

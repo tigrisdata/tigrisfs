@@ -21,4 +21,4 @@ jobs:
 
     - name: Run cluster tests
       run: NUM_ITER=100 SAME_PROCESS_MOUNT=1 make run-cluster-test
-      timeout-minutes: 20
+      timeout-minutes: 25

@@ -488,10 +488,12 @@ func (fs *ClusterFs) lookUpInode1(parent *Inode, name string) (
 		return nil, 0, nil, err
 	}
 
+	parent.DowngradeToKeepOwnerLock()
+
+	child.KeepOwnerLock()
 	pbInode := child.pbInode()
 	inodeId := uint64(child.Id)
-
-	parent.DowngradeToKeepOwnerLock()
+	child.KeepOwnerUnlock()
 
 	return pbInode, inodeId, pbAttr, nil
 }

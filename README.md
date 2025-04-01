@@ -26,13 +26,35 @@ In first release we worked on improving reliability of the code base:
 
 ## Prebuilt DEB and RPM packages 
 
-* Download package from latest release: [DEB](https://github.com/tigrisdata/tigrisfs/releases/latest/download/tigrisfs-linux-amd64.deb), [RPM](https://github.com/tigrisdata/tigrisfs/releases/latest/download/tigrisfs-linux-amd64.rpm).
-* Install it with `dpkg -i tigrisfs-linux-amd64.deb` or `rpm -i tigrisfs-linux-amd64.rpm`.
-* TigrisFS can use standard AWS credentials file and environment variables. They will be picked up automatically if you have them configured.
-  Alternatively, you can configure AWS credentials in `/etc/tigrisfs/defaults
-* Now you can mount your S3 bucket with `systemctl --user start tigrisfs@<bucket>`.
-* The mount will be available at `$HOME/mnt/tigrisfs/<bucket>`.
-
+* Download the latest release: [DEB](https://github.com/tigrisdata/tigrisfs/releases/latest/download/tigrisfs-linux-amd64.deb), [RPM](https://github.com/tigrisdata/tigrisfs/releases/latest/download/tigrisfs-linux-amd64.rpm).
+* Install the package:
+  * Debian-based systems:
+    ```bash
+    dpkg -i tigrisfs-linux-amd64.deb
+    ```
+  * RPM-based systems:
+    ```bash
+    rpm -i tigrisfs-linux-amd64.rpm
+    ```
+* Configure credentials
+  TigrisFS can use credentials from different sources:
+  * Standard AWS credentials files `~/.aws/credentials` and `~/.aws/config`. Use `aws configure` to set them up and export
+    `AWS_PROFILE` environment variable to use a specific profile.
+  * Environment variables `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`.
+  * TigrisFS credentials in `/etc/default/tigrisfs` or mount specific credentials in `/etc/default/tigrisfs-<bucket>`.
+ 
+* Mount the bucket
+  * as current user
+    ```bash
+    systemctl --user start tigrisfs@<bucket>
+    ```
+    The bucket is mounted at `$HOME/mnt/tigrisfs/<bucket>`.
+  * as root
+    ```bash
+    systemctl start tigrisfs@<bucket>
+    ```
+    The bucket is mounted at `/mnt/tigrisfs/<bucket>`.
+ 
 # License
 
 Licensed under the Apache License, Version 2.0
