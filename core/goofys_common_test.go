@@ -211,6 +211,7 @@ func selectTestConfig(flags *cfg.FlagStorage) (conf cfg.S3Config) {
 			} else {
 				conf.AccessKey = os.Getenv("AWS_ACCESS_KEY_ID")
 				conf.SecretKey = os.Getenv("AWS_SECRET_ACCESS_KEY")
+				flags.Endpoint = os.Getenv("AWS_ENDPOINT_URL")
 			}
 		}
 
