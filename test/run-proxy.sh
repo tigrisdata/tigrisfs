@@ -24,7 +24,7 @@ PROXY_FS=$PROXY_FS
 PROXY_PORT=${PROXY_PORT:-8080}
 TIMEOUT=${TIMEOUT:-10m}
 
-trap 'kill -9 $PROXY_PID' EXIT
+trap 'kill -9 $PROXY_PID; kill -9 $PS_PID' EXIT
 
 if [ $CLOUD == "s3" ]; then
     sed 's/$PORT/'$PROXY_PORT'/' < test/s3proxy.properties > test/s3proxy_test.properties
@@ -33,7 +33,9 @@ if [ $CLOUD == "s3" ]; then
         echo jclouds.provider=filesystem >>test/s3proxy_test.properties
         echo jclouds.filesystem.basedir=/tmp/s3proxy >>test/s3proxy_test.properties
     fi
-    PROXY_BIN="java -Xms512m -Xmx16g --add-opens java.base/java.lang=ALL-UNNAMED -jar s3proxy.jar --properties test/s3proxy_test.properties"
+    PROXY_BIN="java -Xmx8g --add-opens java.base/java.lang=ALL-UNNAMED -jar s3proxy.jar --properties test/s3proxy_test.properties"
+	(java --version; for i in $(seq 100); do ps aux|grep -e java -e tigrisfs; sleep 7; done) &
+	PS_PID=$!
     export AWS_ACCESS_KEY_ID=foo
     export AWS_SECRET_ACCESS_KEY=bar
     export ENDPOINT=http://localhost:$PROXY_PORT
