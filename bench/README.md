@@ -8,7 +8,7 @@ Test cases:
 - Write 1 10GB file to S3.
 - Read 1 10GB file from S3.
 
-| Case       | geesefs  | rclone+cache | rclone     | goofys   | s3fs     |
+| Case       | tigrisfs  | rclone+cache | rclone     | goofys   | s3fs     |
 | ---------- | --------:| ------------:| ----------:| --------:| --------:|
 | cp -r 6400 | **0:25** | 6:20         | 7:03       | 8:51     | 53:30    |
 | rm -r 6400 | **0:22** | 6:16         | 6:20       | 8:36     | 18:26    |
@@ -24,7 +24,7 @@ depending on current load of the VM, network and so on.
 
 mdtest is a simple FS metadata operations test: https://github.com/hpc/ior
 
-Note that because of the asynchronous nature of GeeseFS, modified mdtest was used for testing:
+Note that because of the asynchronous nature of TigrisFS, modified mdtest was used for testing:
 https://github.com/vitalif/mdtest - this version issues a directory fsync after each test to
 flush all changes to S3.
 
@@ -33,7 +33,7 @@ https://github.com/juicedata/juicefs/blob/main/docs/en/mdtest.md
 
 `./mdtest -d ~/ya/mdtest -b 6 -I 8 -z 4`
 
-| Operation          | GeeseFS (64T) | GeeseFS (16T) |  JuiceFS  |     Goofys |
+| Operation          | TigrisFS (64T) | TigrisFS (16T) |  JuiceFS  |     Goofys |
 | ------------------ | -------------:| -------------:| ---------:| ----------:|
 | Directory creation |   2938.865    |    858.312    |  1536.196 |     25.657 |
 | Directory stat     | 107342.263    | 119940.559    |  8244.875 | 141249.883 |
@@ -48,7 +48,7 @@ https://github.com/juicedata/juicefs/blob/main/docs/en/mdtest.md
 
 JuiceFS here was using Redis for metadata storage.
 
-The results show that GeeseFS with **just S3** may be faster than JuiceFS with **in-memory**
+The results show that TigrisFS with **just S3** may be faster than JuiceFS with **in-memory**
 metadata storage. The only exception is directory rename, for obvious reasons - S3 doesn't have renames.
 
 ## Goofys tests

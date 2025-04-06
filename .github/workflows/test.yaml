@@ -1,0 +1,20 @@
+name: Unittests
+
+on:
+  workflow_call:
+  pull_request:
+  push:
+    branches:
+    - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Build linux amd64
+      run: env CGO_ENABLED=0 go build -o tigrisfs-linux-amd64 -v && ln -s tigrisfs-linux-amd64 tigrisfs
+
+    - name: Run tests
+      run: SAME_PROCESS_MOUNT=1 make run-test

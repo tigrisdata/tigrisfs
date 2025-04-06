@@ -1,0 +1,7 @@
+issues:
+  exclude-files:
+    - ".*_test.go"
+    - "conf_azure.go"
+    - "core/backend_adlv2.go"
+    - "core/backend_adlv1.go"
+    - "core/backend_azblob.go"

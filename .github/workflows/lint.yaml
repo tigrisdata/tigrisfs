@@ -1,0 +1,22 @@
+name: Lint
+
+on:
+  workflow_call:
+  pull_request:
+  push:
+    branches:
+    - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup golangci-lint
+      run: |
+        curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $HOME/.local/bin v1.64.7
+        echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+    - name: Lint
+      run: make run-lint

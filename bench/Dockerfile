@@ -27,8 +27,8 @@ RUN git clone --depth 1 https://github.com/s3fs-fuse/s3fs-fuse.git && \
 # ideally I want to clear out all the go deps too but there's no
 # way to do that with ADD
 ENV PATH=$PATH:/root/go/bin
-ADD . /root/go/src/github.com/yandex-cloud/geesefs
-WORKDIR /root/go/src/github.com/yandex-cloud/geesefs
+ADD . /root/go/src/github.com/tigrisdata/tigrisfs
+WORKDIR /root/go/src/github.com/tigrisdata/tigrisfs
 RUN go get . && make install
 
-ENTRYPOINT ["/root/go/src/github.com/yandex-cloud/geesefs/bench/run_bench.sh"]
+ENTRYPOINT ["/root/go/src/github.com/tigrisdata/tigrisfs/bench/run_bench.sh"]

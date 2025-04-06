@@ -7,7 +7,7 @@ PROG2=$2
 
 if [ -z "$PROG1" -o -z "$PROG2" ]; then
     echo "USAGE: ./format_bench.sh PROG1 PROG2"
-    echo "For example, ./format_bench.sh geesefs goofys"
+    echo "For example, ./format_bench.sh tigrisfs goofys"
     exit
 fi
 

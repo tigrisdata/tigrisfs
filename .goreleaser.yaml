@@ -1,0 +1,46 @@
+version: 2
+builds:
+  - env:
+      - CGO_ENABLED=0
+      - ENDPOINT="https://fly.storage.tigris.dev"
+    goos:
+      - linux
+      - windows
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    binary: tigrisfs
+    ldflags:
+      - -w -extldflags '-static'
+      - -X 'github.com/tigrisdata/tigrisfs/main.Version={{.Version}}'
+      - -X 'github.com/tigrisdata/tigrisfs/main.Endpoint={{.Env.ENDPOINT}}'
+
+archives:
+  - format_overrides:
+      - goos: windows
+        formats: [ 'zip' ]
+    name_template: "tigrisfs_tigris_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: 'checksums.txt'
+signs:
+  - artifacts: checksum
+
+nfpms:
+  - maintainer: "Tigrisdata Support <support@tigrisdata.com>"
+    formats:
+      - apk
+      - deb
+      - rpm
+    file_name_template: "tigrisfs_tigris_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    contents:
+      - src: pkg/tigrisfs@.service
+        dst: /lib/systemd/system/tigrisfs@.service
+      - src: pkg/tigrisfs_user@.service
+        dst: /lib/systemd/user/tigrisfs@.service
+      - src: pkg/defaults
+        dst: /etc/default/tigrisfs
+    scripts:
+      postinstall: pkg/postinst
+

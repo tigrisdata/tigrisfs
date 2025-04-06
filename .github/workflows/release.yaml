@@ -1,0 +1,27 @@
+name: release
+on:
+  push:
+    branches:
+      - "release"
+jobs:
+  test:
+    uses: ./.github/workflows/test.yaml
+
+  cluster-test:
+    uses: ./.github/workflows/cluster_test.yaml
+
+  xfs-test:
+    uses: ./.github/workflows/xfstests.yaml
+
+  release:
+    runs-on: ubuntu-latest
+    needs: [test,cluster-test,xfs-test]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_BOT_ACCESS_TOKEN }}
+        run: npx semantic-release --debug

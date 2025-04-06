@@ -1,0 +1,24 @@
+name: Cluster Test
+
+on:
+  workflow_call:
+  pull_request:
+  push:
+    branches:
+    - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install test dependencies
+      run: sudo apt-get install -y s3cmd
+
+    - name: Build linux amd64
+      run: env CGO_ENABLED=0 go build -o tigrisfs-linux-amd64 -v && ln -s tigrisfs-linux-amd64 tigrisfs
+
+    - name: Run cluster tests
+      run: NUM_ITER=100 SAME_PROCESS_MOUNT=1 make run-cluster-test
+      timeout-minutes: 25

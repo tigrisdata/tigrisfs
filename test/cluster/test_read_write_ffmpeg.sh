@@ -1,4 +1,17 @@
 #!/bin/bash
+# Copyright 2025 Tigris Data, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 # Test start three processes on different nodes conversing the same .mp4 video to three new .mov videos 
 
@@ -36,10 +49,10 @@ _cleanup() {
 TMP=$(mktemp)
 
 _test() {
-  curl "https://storage.yandexcloud.net/udav318-geesefs-test-provision/video_cut.mp4" \
+  curl "https://storage.yandexcloud.net/udav318-tigrisfs-test-provision/video_cut.mp4" \
   -L --output "$VALID_DIR/video_cut.mp4"
 
-  curl "https://storage.yandexcloud.net/udav318-geesefs-test-provision/video_cut.mp4" \
+  curl "https://storage.yandexcloud.net/udav318-tigrisfs-test-provision/video_cut.mp4" \
   -L --output "$MNT1/video_cut.mp4"
 
   ffmpeg -i "$VALID_DIR/video_cut.mp4" -f mov "$VALID_DIR/video_cut.mov" 2> "$TEST_ARTIFACTS/test_read_write_ffmpeg/ffmpeg_log_valid" &

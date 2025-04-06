@@ -4,13 +4,13 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-: ${BUCKET:="geesefs-bench"}
+: ${BUCKET:="tigrisfs-bench"}
 : ${FAST:=""}
 : ${CACHE:=""}
 : ${ENDPOINT:="http://s3-us-west-2.amazonaws.com/"}
 : ${AWS_ACCESS_KEY_ID:=""}
 : ${AWS_SECRET_ACCESS_KEY:=""}
-: ${PROG:="geesefs"}
+: ${PROG:="tigrisfs"}
 
 if [ $# = 1 ]; then
     t=$1
@@ -26,12 +26,12 @@ if [ "$PROG" = "s3fs" ]; then
         OPT="$OPT -ouse_cache=$CACHE"
     fi
     MOUNTER="s3fs -ostat_cache_expire=1 $OPT $BUCKET bench-mnt"
-elif [ "$PROG" = "geesefs" ]; then
+elif [ "$PROG" = "tigrisfs" ]; then
     OPT="--endpoint $ENDPOINT"
     if [ "$CACHE" != "" ]; then
         OPT="$OPT --cache $CACHE -o allow_other"
     fi
-    MOUNTER="geesefs --stat-cache-ttl 1s $OPT $BUCKET bench-mnt"
+    MOUNTER="tigrisfs --stat-cache-ttl 1s $OPT $BUCKET bench-mnt"
 elif [ "$PROG" = "goofys" ]; then
     OPT="--endpoint $ENDPOINT"
     if [ "$CACHE" != "" ]; then
