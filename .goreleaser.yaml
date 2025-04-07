@@ -41,6 +41,9 @@ nfpms:
         dst: /lib/systemd/user/tigrisfs@.service
       - src: pkg/defaults
         dst: /etc/default/tigrisfs
+        type: "config|noreplace"
+        file_info:
+          mode: 0600
     scripts:
       postinstall: pkg/postinst
 
