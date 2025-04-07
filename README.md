@@ -26,15 +26,15 @@ In first release we worked on improving reliability of the code base:
 
 ## Prebuilt DEB and RPM packages 
 
-* Download the latest release: [DEB](https://github.com/tigrisdata/tigrisfs/releases/latest/download/tigrisfs-linux-amd64.deb), [RPM](https://github.com/tigrisdata/tigrisfs/releases/latest/download/tigrisfs-linux-amd64.rpm).
+* Download the latest release: [DEB](https://github.com/tigrisdata/tigrisfs/releases/download/v1.1.0/tigrisfs_tigris_1.1.0_linux_amd64.deb), [RPM](https://github.com/tigrisdata/tigrisfs/releases/download/v1.1.0/tigrisfs_tigris_1.1.0_linux_amd64.rpm).
 * Install the package:
   * Debian-based systems:
     ```bash
-    dpkg -i tigrisfs-linux-amd64.deb
+    dpkg -i tigrisfs_tigris_1.1.0_linux_amd64.deb
     ```
   * RPM-based systems:
     ```bash
-    rpm -i tigrisfs-linux-amd64.rpm
+    rpm -i tigrisfs_tigris_1.1.0_linux_amd64.rpm
     ```
 * Configure credentials
   TigrisFS can use credentials from different sources:
@@ -54,6 +54,24 @@ In first release we worked on improving reliability of the code base:
     systemctl start tigrisfs@<bucket>
     ```
     The bucket is mounted at `/mnt/tigrisfs/<bucket>`.
+
+## Binary install
+
+* Download and unpack the latest release:
+  * MacOS ARM64
+    ```
+      curl -L https://github.com/tigrisdata/tigrisfs/releases/download/v1.1.0/tigrisfs_tigris_1.1.0_darwin_arm64.tar.gz | tar -xz -C /usr/local/bin
+    ```
+* Configuration is the same as for the DEB and RPM packages above.
+* Mount the bucket:
+  * as current user
+    ```bash
+    /usr/local/bin/tigrisfs <bucket> $HOME/mnt/tigrisfs/<bucket>
+    ```
+  * as root
+    ```bash
+    sudo /usr/local/bin/tigrisfs <bucket> /mnt/tigrisfs/<bucket>
+    ```
  
 # License
 
