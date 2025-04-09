@@ -18,21 +18,41 @@ set -ex
 . "$(dirname "$0")/../mount.sh"
 
 CASE=posix_meta
-DIR=$MNT_DIR/$CASE/$RANDOM
+DIR="$MNT_DIR/$CASE/$RANDOM"
 
-df -h
+mkdir -p "$DIR"
+fn="$DIR/file.$RANDOM"
 
-mkdir -p $DIR
-fn=$DIR/file.$RANDOM
-touch $fn
-[ "$(stat -c '%G' $fn)" == "$USER" ]
-chown $USER:users $fn
-[ "$(stat -c '%G' $fn)" == "users" ]
-touch $fn
-[ "$(stat -c '%G' $fn)" == "users" ]
+# Test group id
+touch "$fn"
+[ "$(stat -c '%G' $fn)" == "$USER" ] || exit 1
+chown "$USER:users" "$fn"
+[ "$(stat -c '%G' "$fn")" == "users" ] || exit 1
+touch "$fn"
+[ "$(stat -c '%G' $fn)" == "users" ] || exit 1
+[ "$(stat -c '%A' $fn)" == "-rw-rw-r--" ] || exit 1
+chmod 600 "$fn"
+[ "$(stat -c '%A' $fn)" == "-rw-------" ] || exit 1
 
-_umount $MNT_DIR
-FS_BIN=$(dirname "$0")/../../tigrisfs _mount $MNT_DIR --enable-perms
+# Test symlink
+ln -s "$fn" "${fn}_link"
+[ -L "${fn}_link" ] || exit 1
+
+# Test fifo
+mkfifo "${fn}_fifo"
+ls -la $DIR
+[ "$(stat -c '%A' ${fn}_fifo)" == "prw-rw-r--" ] || exit 1
+chmod 600 "${fn}_fifo"
+[ "$(stat -c '%A' ${fn}_fifo)" == "prw-------" ] || exit 1
+[ -p "${fn}_fifo" ] || exit 1
+
+# Test attributes persisted after restart
+_umount "$MNT_DIR"
+FS_BIN=$(dirname "$0")/../../tigrisfs _mount "$MNT_DIR" --enable-specials --enable-perms
 sleep 5
 
-[ "$(stat -c '%G' $fn)" == "users" ]
+[ "$(stat -c '%G' $fn)" == "users" ] || exit 1
+[ "$(stat -c '%A' $fn)" == "-rw-------" ] || exit 1
+[ -L "${fn}_link" ] || exit 1
+[ -p "${fn}_fifo" ] || exit 1
+[ "$(stat -c '%A' ${fn}_fifo)" == "prw-------" ] || exit 1

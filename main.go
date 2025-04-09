@@ -100,8 +100,6 @@ func main() {
 			flags.Foreground = true
 		}
 
-		cfg.InitLoggers(flags)
-
 		if !flags.Foreground {
 			daemonizer = NewDaemonizer()
 			// Do not close stderr before mounting to print mount errors
@@ -113,6 +111,8 @@ func main() {
 				return err
 			}
 		}
+
+		cfg.InitLoggers(flags)
 
 		mainLog.Info().Str("version", cfg.Version).Msg("Starting TigrisFS version")
 		mainLog.Info().Str("bucketName", bucketName).Str("mountPoint", flags.MountPoint).Msg("Mounting")
@@ -148,6 +148,7 @@ func main() {
 			mainLog.Info().Msg("File system has been successfully mounted.")
 			if !flags.Foreground {
 				daemonizer.NotifySuccess(true)
+				mainLog.Debug().Msg("Process is daemonized. Closing stdout and stderr.")
 				mainLog.E(os.Stderr.Close())
 				mainLog.E(os.Stdout.Close())
 			}

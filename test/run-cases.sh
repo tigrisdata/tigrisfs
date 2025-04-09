@@ -2,17 +2,18 @@
 
 set -ex
 
-export MNT_DIR=$(mktemp -d)
+MNT_DIR=$(mktemp -d)
+export MNT_DIR
 
-export BUCKET_NAME="tigrisfs-test"
-export ENDPOINT="http://localhost:8080"
+export BUCKET_NAME="tigrisfs-test.$RANDOM"
+export ENDPOINT=${ENDPOINT:-"http://localhost:8080"}
 
 . "$(dirname "$0")/mount.sh"
 
 _s3cmd mb s3://$BUCKET_NAME
 
-_mount "$MNT_DIR" --enable-perms
-trap "_umount $MNT_DIR" EXIT
+_mount "$MNT_DIR" --enable-specials --enable-perms
+trap '_umount $MNT_DIR' EXIT
 
 sleep 5
 

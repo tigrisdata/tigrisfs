@@ -32,7 +32,6 @@ import (
 	daemon "github.com/sevlyar/go-daemon"
 	"github.com/tigrisdata/tigrisfs/core"
 	"github.com/tigrisdata/tigrisfs/core/cfg"
-	"github.com/tigrisdata/tigrisfs/log"
 )
 
 var signalsToHandle = []os.Signal{os.Interrupt, syscall.SIGTERM, syscall.SIGUSR1}
@@ -92,17 +91,13 @@ func (p *Daemonizer) Daemonize(logFile string) error {
 	}
 
 	if child != nil {
-		log.Debug().Int("pid", os.Getpid()).Msg("parent")
 		// attempt to wait for child to notify parent
 		if p.Wait() {
-			log.Debug().Int("pid", os.Getpid()).Msg("parent exiting")
 			os.Exit(0)
 		} else {
-			log.Debug().Int("pid", os.Getpid()).Msg("inval")
 			return syscall.EINVAL
 		}
 	} else {
-		log.Debug().Int("pid", os.Getpid()).Msg("child")
 		p.Cancel()
 		mainLog.E(ctx.Release())
 	}
