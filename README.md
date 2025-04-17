@@ -16,25 +16,35 @@ It solves these problems by using aggressive parallelism and asynchrony.
 
 The goal of TigrisFS is to further improve on performance and reliability especially in distributed cluster setup.
 
-In first release we worked on improving reliability of the code base:
- * Removed bundled, outdated AWS SDK with critical vulnerabilities.
- * Upgraded dependencies to fix security vulnerabilities.
- * Enabled race detector in tests and fixed all detected race conditions.
- * Enabled unit, xfs and cluster tests on every PR and push to main.
+In the first release we focused on improving security and reliability of the code base:
+ * Improved security by:
+   * removing bundled, outdated AWS SDK with critical vulnerabilities.
+   * upgrading dependencies to fix security vulnerabilities.
+ * Improved reliability by:
+   * fixing all race conditions found by race detector, which is now enabled by default in tests.
+   * fixing all linter issues and enabling linting by default in CI.
+   * running more extensive tests and enabling them by default in CI.
+
+## Tigris specific features
+
+When mounted with the [Tigris](https://www.tigrisdata.com) backend TigrisFS supports:
+  * POSIX permissions, special files, symbolic links.
+  * Auto-preload content of small files on directory list in single request.
+  * Allows to auto prefetch directory data to the region on list.
 
 # Installation
 
 ## Prebuilt DEB and RPM packages 
 
-* Download the latest release: [DEB](https://github.com/tigrisdata/tigrisfs/releases/download/v1.1.0/tigrisfs_tigris_1.1.0_linux_amd64.deb), [RPM](https://github.com/tigrisdata/tigrisfs/releases/download/v1.1.0/tigrisfs_tigris_1.1.0_linux_amd64.rpm).
+* Download the latest release: [DEB](https://github.com/tigrisdata/tigrisfs/releases/download/v1.1.2/tigrisfs_1.1.2_linux_amd64.deb), [RPM](https://github.com/tigrisdata/tigrisfs/releases/download/v1.1.2/tigrisfs_1.1.2_linux_amd64.rpm).
 * Install the package:
   * Debian-based systems:
     ```bash
-    dpkg -i tigrisfs_tigris_1.1.0_linux_amd64.deb
+    dpkg -i tigrisfs_1.1.2_linux_amd64.deb
     ```
   * RPM-based systems:
     ```bash
-    rpm -i tigrisfs_tigris_1.1.0_linux_amd64.rpm
+    rpm -i tigrisfs_1.1.2_linux_amd64.rpm
     ```
 * Configure credentials
   TigrisFS can use credentials from different sources:
@@ -42,6 +52,7 @@ In first release we worked on improving reliability of the code base:
     `AWS_PROFILE` environment variable to use a specific profile.
   * Environment variables `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`.
   * TigrisFS credentials in `/etc/default/tigrisfs` or mount specific credentials in `/etc/default/tigrisfs-<bucket>`.
+See [docs](https://www.tigrisdata.com/docs/sdks/s3/aws-cli/) for more details.
  
 * Mount the bucket
   * as current user
@@ -60,7 +71,7 @@ In first release we worked on improving reliability of the code base:
 * Download and unpack the latest release:
   * MacOS ARM64
     ```
-      curl -L https://github.com/tigrisdata/tigrisfs/releases/download/v1.1.0/tigrisfs_tigris_1.1.0_darwin_arm64.tar.gz | tar -xz -C /usr/local/bin
+      curl -L https://github.com/tigrisdata/tigrisfs/releases/download/v1.1.2/tigrisfs_1.1.2_darwin_arm64.tar.gz | tar -xz -C /usr/local/bin
     ```
 * Configuration is the same as for the DEB and RPM packages above.
 * Mount the bucket:

@@ -18,10 +18,11 @@
 package log
 
 import (
-	"golang.org/x/sys/unix"
 	"io"
 	"log/syslog"
 	"os"
+
+	"golang.org/x/sys/unix"
 )
 
 func redirectStdout(target *os.File) error {
@@ -32,10 +33,6 @@ func redirectStderr(target *os.File) error {
 	return unix.Dup2(int(target.Fd()), int(os.Stderr.Fd()))
 }
 
-func InitSyslog() io.Writer {
-	lf, err := syslog.New(syslog.LOG_INFO, "tigrisfs")
-	if err != nil {
-		Fatal().Err(err).Msg("Failed to connect to syslog")
-	}
-	return lf
+func InitSyslog() (io.Writer, error) {
+	return syslog.New(syslog.LOG_INFO, "tigrisfs")
 }

@@ -42,30 +42,42 @@ var (
 
 var logWriter io.Writer = os.Stderr
 
-func logStderr(msg string, args ...any) {
-	_, _ = fmt.Fprintf(os.Stderr, msg, args...)
-}
-
-func InitLoggerRedirect(logFileName string) {
-	if logFileName == "syslog" {
-		logWriter = InitSyslog()
-	} else if logFileName != "stderr" && logFileName != "/dev/stderr" && logFileName != "" {
-		var err error
-		lf, err := os.OpenFile(logFileName, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o666)
-		if err != nil {
-			logStderr("Couldn't open file %v for writing logs", logFileName)
-			return
-		}
-		if err = redirectStdout(lf); err != nil {
-			logStderr("Couldn't redirect STDOUT to the log file %v", logFileName)
-			return
-		}
-		if err = redirectStderr(lf); err != nil {
-			logStderr("Couldn't redirect STDERR to the log file %v", logFileName)
-			return
-		}
-		logWriter = lf
+func InitLoggerRedirect(logFileName string, defLog bool) error {
+	if logFileName == "stderr" || logFileName == "/dev/stderr" || logFileName == "" {
+		return nil
 	}
+
+	if logFileName == "syslog" {
+		var err error
+		logWriter, err = InitSyslog()
+		if err == nil {
+			return nil
+		}
+
+		if !defLog {
+			return err
+		}
+
+		// log file is not set and we are deamonizing redirect to default file location
+		Warn().Err(err).Msg("failed to open syslog. redirecting logs to /var/log/tigrisfs.log")
+		logFileName = "/var/log/tigrisfs.log"
+	}
+
+	var err error
+	lf, err := os.OpenFile(logFileName, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o666)
+	if err != nil {
+		return fmt.Errorf("couldn't open file %v for writing logs: %w", logFileName, err)
+	}
+	if err = redirectStdout(lf); err != nil {
+		return fmt.Errorf("couldn't redirect STDOUT to the log file %v: %w", logFileName, err)
+	}
+	if err = redirectStderr(lf); err != nil {
+		return fmt.Errorf("couldn't redirect STDERR to the log file %v: %w", logFileName, err)
+	}
+
+	logWriter = lf
+
+	return nil
 }
 
 func SetCloudLogLevel(level zerolog.Level) {

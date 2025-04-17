@@ -23,7 +23,7 @@ import (
 	"github.com/tigrisdata/tigrisfs/log"
 )
 
-func InitLoggers(flags *FlagStorage) {
+func InitLoggers(flags *FlagStorage) error {
 	lf := flags.LogFile
 	if lf == "" {
 		lf = "stderr"
@@ -32,7 +32,10 @@ func InitLoggers(flags *FlagStorage) {
 		}
 	}
 
-	log.InitLoggerRedirect(lf)
+	err := log.InitLoggerRedirect(lf, len(flags.LogFile) == 0)
+	if err != nil {
+		return err
+	}
 
 	log.DefaultLogConfig = &log.LogConfig{
 		Level:  flags.LogLevel,
@@ -51,4 +54,6 @@ func InitLoggers(flags *FlagStorage) {
 	log.SetLoggersConfig(log.DefaultLogConfig)
 
 	//	log.DumpLoggers("InitLoggers")
+
+	return nil
 }

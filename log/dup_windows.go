@@ -38,6 +38,6 @@ func redirectStderr(target *os.File) error {
 	return err
 }
 
-func InitSyslog() io.Writer {
-	return logWriter
+func InitSyslog() (io.Writer, error) {
+	return logWriter, nil
 }

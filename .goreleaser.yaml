@@ -2,7 +2,7 @@ version: 2
 builds:
   - env:
       - CGO_ENABLED=0
-      - ENDPOINT="https://fly.storage.tigris.dev"
+      - ENDPOINT=https://fly.storage.tigris.dev
     goos:
       - linux
       - windows
@@ -13,8 +13,8 @@ builds:
     binary: tigrisfs
     ldflags:
       - -w -extldflags '-static'
-      - -X 'github.com/tigrisdata/tigrisfs/main.Version={{.Version}}'
-      - -X 'github.com/tigrisdata/tigrisfs/main.Endpoint={{.Env.ENDPOINT}}'
+      - -X 'github.com/tigrisdata/tigrisfs/core/cfg.Version={{.Version}}'
+      - -X 'github.com/tigrisdata/tigrisfs/core/cfg.DefaultEndpoint={{.Env.ENDPOINT}}'
 
 archives:
   - format_overrides:

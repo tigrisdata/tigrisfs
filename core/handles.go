@@ -227,6 +227,9 @@ func (inode *Inode) SetFromBlobItem(item *BlobItemOutput) {
 			inode.setMetadata(item.Metadata)
 			inode.userMetadataDirty = 0
 		}
+		if item.Content != nil {
+			inode.buffers.Add(0, item.Content, BUF_CLEAN, false)
+		}
 	}
 	if item.ETag != nil {
 		inode.s3Metadata["etag"] = []byte(*item.ETag)

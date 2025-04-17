@@ -12,7 +12,9 @@ export ENDPOINT=${ENDPOINT:-"http://localhost:8080"}
 
 _s3cmd mb s3://$BUCKET_NAME
 
-_mount "$MNT_DIR" --enable-specials --enable-perms
+export DEF_MNT_PARAMS="--enable-mtime --enable-specials --enable-perms"
+# shellcheck disable=SC2086
+_mount "$MNT_DIR" $DEF_MNT_PARAMS
 trap '_umount $MNT_DIR' EXIT
 
 sleep 5

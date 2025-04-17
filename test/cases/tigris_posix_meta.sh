@@ -48,7 +48,8 @@ chmod 600 "${fn}_fifo"
 
 # Test attributes persisted after restart
 _umount "$MNT_DIR"
-FS_BIN=$(dirname "$0")/../../tigrisfs _mount "$MNT_DIR" --enable-specials --enable-perms
+# shellcheck disable=SC2086
+FS_BIN=$(dirname "$0")/../../tigrisfs _mount "$MNT_DIR" $DEF_MNT_PARAMS
 sleep 5
 
 [ "$(stat -c '%G' $fn)" == "users" ] || exit 1

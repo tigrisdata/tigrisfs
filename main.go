@@ -27,6 +27,7 @@ import (
 
 	"github.com/tigrisdata/tigrisfs/core"
 	"github.com/tigrisdata/tigrisfs/core/cfg"
+	"github.com/tigrisdata/tigrisfs/lib"
 	"github.com/tigrisdata/tigrisfs/log"
 	"github.com/urfave/cli"
 
@@ -112,7 +113,15 @@ func main() {
 			}
 		}
 
-		cfg.InitLoggers(flags)
+		err = cfg.InitLoggers(flags)
+		if err != nil {
+			if !flags.Foreground {
+				daemonizer.NotifySuccess(false)
+			}
+			mainLog.Fatal().Err(err).Msg("Unable to initialize logger")
+		}
+
+		mainLog.Debug().Interface("flags", flags).Msg("config")
 
 		mainLog.Info().Str("version", cfg.Version).Msg("Starting TigrisFS version")
 		mainLog.Info().Str("bucketName", bucketName).Str("mountPoint", flags.MountPoint).Msg("Mounting")
@@ -141,12 +150,20 @@ func main() {
 		if err != nil {
 			if !flags.Foreground {
 				daemonizer.NotifySuccess(false)
+				// if demonized but started from terminal show error to the user
+				if lib.IsTTY(os.Stderr) {
+					_, _ = fmt.Fprintf(os.Stderr, "Mounting file system failed: %v\n", err)
+				}
 			}
 			mainLog.Fatal().Err(err).Msg("Mounting file system failed")
 			// fatal also terminates itself
 		} else {
 			mainLog.Info().Msg("File system has been successfully mounted.")
 			if !flags.Foreground {
+				// if demonized but started from terminal show success to the user
+				if lib.IsTTY(os.Stderr) {
+					_, _ = fmt.Fprintf(os.Stderr, "File system has been successfully mounted\n")
+				}
 				daemonizer.NotifySuccess(true)
 				mainLog.Debug().Msg("Process is daemonized. Closing stdout and stderr.")
 				mainLog.E(os.Stderr.Close())
