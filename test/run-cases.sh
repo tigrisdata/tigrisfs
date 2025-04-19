@@ -10,7 +10,14 @@ export ENDPOINT=${ENDPOINT:-"http://localhost:8080"}
 
 . "$(dirname "$0")/mount.sh"
 
-_s3cmd mb s3://$BUCKET_NAME
+if [ "$NO_PROXY" == "" ]; then
+  . "$(dirname "$0")/run-proxy.sh"
+fi
+
+sleep 5
+
+#_s3cmd mb s3://$BUCKET_NAME
+AWS_ENDPOINT_URL=$ENDPOINT aws s3 mb s3://$BUCKET_NAME
 
 export DEF_MNT_PARAMS="--enable-mtime --enable-specials --enable-perms"
 # shellcheck disable=SC2086
