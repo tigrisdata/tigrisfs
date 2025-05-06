@@ -2,7 +2,7 @@ version: 2
 builds:
   - env:
       - CGO_ENABLED=0
-      - ENDPOINT=https://fly.storage.tigris.dev
+      - ENDPOINT=https://t3.storage.dev
     goos:
       - linux
       - windows
