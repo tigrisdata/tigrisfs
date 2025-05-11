@@ -59,12 +59,12 @@ See [docs](https://www.tigrisdata.com/docs/sdks/s3/aws-cli/) for more details.
     ```bash
     systemctl --user start tigrisfs@<bucket>
     ```
-    The bucket is mounted at `$HOME/mnt/tigrisfs/<bucket>`.
+    The bucket is mounted at `$HOME/mnt/tigris/<bucket>`.
   * as root
     ```bash
     systemctl start tigrisfs@<bucket>
     ```
-    The bucket is mounted at `/mnt/tigrisfs/<bucket>`.
+    The bucket is mounted at `/mnt/tigris/<bucket>`.
 
 ## Binary install
 
