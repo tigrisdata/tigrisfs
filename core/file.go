@@ -768,14 +768,145 @@ func (inode *Inode) sendUpload(priority int) bool {
 	return false
 }
 
-func (inode *Inode) sendRename() {
+func (inode *Inode) finishErrorSendRenameSpecial(err error, from string, key string, oldParent *Inode, oldName string) {
+	mappedErr := mapAwsError(err)
+	if mappedErr == syscall.ENOENT || mappedErr == syscall.ERANGE {
+		s3Log.Warnf("Conflict detected (inode %v): failed to copy %v to %v: %v. File is removed remotely, dropping cache", inode.Id, from, key, err)
+		inode.mu.Lock()
+		newParent := inode.Parent
+		oldParent := inode.oldParent
+		oldName := inode.oldName
+		inode.oldParent = nil
+		inode.oldName = ""
+		inode.renamingTo = false
+		inode.resetCache()
+		inode.mu.Unlock()
+		newParent.removeChild(inode)
+		if oldParent != nil {
+			oldParent.mu.Lock()
+			if _, ok := oldParent.dir.DeletedChildren[oldName]; ok {
+				delete(oldParent.dir.DeletedChildren, oldName)
+				oldParent.addModified(-1)
+			}
+			oldParent.mu.Unlock()
+		}
+	} else {
+		fuseLog.Warnf("Failed to copy %v to %v (rename): %v", from, key, err)
+		inode.mu.Lock()
+		inode.recordFlushError(err)
+		if inode.Parent == oldParent && inode.Name == oldName {
+			// Someone renamed the inode back to the original name
+			// ...while we failed to copy it :)
+			inode.oldParent = nil
+			inode.oldName = ""
+			inode.renamingTo = false
+			inode.Parent.addModified(-1)
+			if (inode.CacheState == ST_MODIFIED || inode.CacheState == ST_CREATED) &&
+				!inode.isStillDirty() {
+				inode.SetCacheState(ST_CACHED)
+				inode.SetAttrTime(time.Now())
+			}
+		}
+		inode.mu.Unlock()
+	}
+}
+
+func (inode *Inode) finishSuccessSendRenameSpecial(from string, key string, oldParent *Inode, oldName string, newParent *Inode, newName string) {
+	fuseLog.Debugf("Renamed %v to %v (rename)", from, key)
+	inode.mu.Lock()
+
+	// Now we know that the object is accessible by the new name
+	if inode.Parent == newParent && inode.Name == newName {
+		// Just clear the old path
+		inode.oldParent = nil
+		inode.oldName = ""
+	} else if inode.Parent == oldParent && inode.Name == oldName {
+		// Someone renamed the inode back to the original name(!)
+		inode.oldParent = nil
+		inode.oldName = ""
+		// Delete the new key instead of the old one (?)
+	} else {
+		// Someone renamed the inode again(!)
+		inode.oldParent = newParent
+		inode.oldName = newName
+	}
+	if (inode.CacheState == ST_MODIFIED || inode.CacheState == ST_CREATED) &&
+		!inode.isStillDirty() {
+		inode.SetCacheState(ST_CACHED)
+		inode.SetAttrTime(time.Now())
+	}
+	inode.renamingTo = false
+	inode.mu.Unlock()
+
+	oldParent.mu.Lock()
+	delete(oldParent.dir.DeletedChildren, oldName)
+	oldParent.mu.Unlock()
+	// And track ModifiedChildren because rename is special - it takes two parents
+	oldParent.addModified(-1)
+}
+
+func (inode *Inode) finishRenameFlush() {
+	inode.mu.Lock()
+	inode.IsFlushing -= inode.fs.flags.MaxParallelParts
+	atomic.AddInt64(&inode.fs.activeFlushers, -1)
+	inode.fs.WakeupFlusher()
+	inode.mu.Unlock()
+}
+
+func (inode *Inode) startRenameFlush() {
+	inode.IsFlushing += inode.fs.flags.MaxParallelParts
+	atomic.AddInt64(&inode.fs.stats.flushes, 1)
+	atomic.AddInt64(&inode.fs.activeFlushers, 1)
+}
+
+func (inode *Inode) sendRenameSpecial() {
+	if inode.isDir() && inode.fs.flags.NoDirObject {
+		return
+	}
+
+	cloud, key := inode.cloud()
+	_, from := inode.oldParent.cloud()
+
+	from = appendChildName(from, inode.oldName)
+	inode.renamingTo = true
+	oldParent := inode.oldParent
+	oldName := inode.oldName
+	newParent := inode.Parent
+	newName := inode.Name
+	if inode.isDir() {
+		from += "/"
+		key += "/"
+	}
+
+	inode.startRenameFlush()
+
+	go func() {
+		inode.fs.addInflightChange(key)
+		_, err := cloud.RenameBlob(&RenameBlobInput{
+			Source:      from,
+			Destination: key,
+		})
+		inode.fs.completeInflightChange(key)
+		if err != nil {
+			mappedErr := mapAwsError(err)
+			if mappedErr != syscall.ENOENT || !inode.isDir() {
+				inode.finishErrorSendRenameSpecial(err, from, key, oldParent, oldName)
+			} else {
+				inode.finishSuccessSendRenameSpecial(from, key, oldParent, oldName, newParent, newName)
+			}
+		} else {
+			inode.finishSuccessSendRenameSpecial(from, key, oldParent, oldName, newParent, newName)
+		}
+		inode.finishRenameFlush()
+	}()
+}
+
+func (inode *Inode) sendRenameCopy() {
 	cloud, key := inode.cloud()
 	if inode.isDir() {
 		key += "/"
 	}
-	inode.IsFlushing += inode.fs.flags.MaxParallelParts
-	atomic.AddInt64(&inode.fs.stats.flushes, 1)
-	atomic.AddInt64(&inode.fs.activeFlushers, 1)
+	inode.startRenameFlush()
 	_, from := inode.oldParent.cloud()
 	from = appendChildName(from, inode.oldName)
 	oldParent := inode.oldParent
@@ -914,12 +1045,18 @@ func (inode *Inode) sendRename() {
 				}
 			}
 		}
-		inode.mu.Lock()
-		inode.IsFlushing -= inode.fs.flags.MaxParallelParts
-		atomic.AddInt64(&inode.fs.activeFlushers, -1)
-		inode.fs.WakeupFlusher()
-		inode.mu.Unlock()
+		inode.finishRenameFlush()
 	}()
+}
+
+func (inode *Inode) sendRename() {
+	flags := inode.fs.flags
+	cloud := *inode.fs.cloud.Load()
+	if cloud.Capabilities().IsTigris && flags.TigrisRename {
+		inode.sendRenameSpecial()
+		return
+	}
+	inode.sendRenameCopy()
 }
 
 func (inode *Inode) sendUpdateMeta() {

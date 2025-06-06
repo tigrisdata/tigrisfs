@@ -198,7 +198,7 @@ func NewLogger(config *LogConfig, module string, colorized bool, writer io.Write
 	var logger zerolog.Logger
 	if config.Format == "console" {
 		output := zerolog.ConsoleWriter{
-			Out:        os.Stdout,
+			Out:        writer,
 			TimeFormat: time.StampMicro,
 		}
 		output.NoColor = !colorized

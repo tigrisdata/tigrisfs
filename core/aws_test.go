@@ -42,7 +42,7 @@ func (s *AwsTest) SetUpSuite(t *C) {
 func (s *AwsTest) TestRegionDetection(t *C) {
 	s.s3.bucket = "goofys-eu-west-1.kahing.xyz"
 
-	if TigrisDetected(s.s3.flags) {
+	if TigrisDetectedForTests(s.s3.flags) {
 		t.Skip("Not relevant for Tigris detected")
 	}
 
@@ -55,7 +55,7 @@ func (s *AwsTest) TestRegionDetection(t *C) {
 func (s *AwsTest) TestBucket404(t *C) {
 	s.s3.bucket = RandStringBytesMaskImprSrc(63)
 
-	if TigrisDetected(s.s3.flags) {
+	if TigrisDetectedForTests(s.s3.flags) {
 		t.Skip("Not relevant for Tigris detected")
 	}
 

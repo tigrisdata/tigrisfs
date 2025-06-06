@@ -332,6 +332,10 @@ func (s *S3Backend) detectBucketLocationByHEAD() (err error, isAws bool) {
 		isAws = true
 	}
 
+	if server != nil && strings.Contains(server[0], "Tigris") {
+		s.cap.IsTigris = true
+	}
+
 	switch resp.StatusCode {
 	case 200:
 		// note that this only happen if the bucket is in us-east-1
@@ -408,7 +412,7 @@ func (s *S3Backend) Init(key string) error {
 	}
 
 	if !s.config.RegionSet {
-		_, _ = s.detectBucketLocationByHEAD()
+		_, isAws = s.detectBucketLocationByHEAD()
 		// if err == nil {
 		// we detected a region header, this is probably AWS S3,
 		// or we can use anonymous access, or both
@@ -809,7 +813,46 @@ func (s *S3Backend) DeleteBlobs(param *DeleteBlobsInput) (*DeleteBlobsOutput, er
 }
 
 func (s *S3Backend) RenameBlob(param *RenameBlobInput) (*RenameBlobOutput, error) {
-	return nil, syscall.ENOTSUP
+	from := s.bucket + "/" + param.Source
+
+	params := &s3.CopyObjectInput{
+		Bucket:            &s.bucket,
+		CopySource:        aws.String(pathEscape(from)),
+		Key:               &param.Destination,
+		MetadataDirective: aws.String(s3.MetadataDirectiveCopy),
+	}
+
+	S3Debug(s3Log, params, "RenameObject")
+
+	if s.config.UseSSE {
+		params.ServerSideEncryption = &s.sseType
+		if s.config.UseKMS && s.config.KMSKeyID != "" {
+			params.SSEKMSKeyId = &s.config.KMSKeyID
+		}
+	} else if s.config.SseC != "" {
+		params.SSECustomerAlgorithm = PString("AES256")
+		params.SSECustomerKey = &s.config.SseC
+		params.SSECustomerKeyMD5 = &s.config.SseCDigest
+		params.CopySourceSSECustomerAlgorithm = PString("AES256")
+		params.CopySourceSSECustomerKey = &s.config.SseC
+		params.CopySourceSSECustomerKeyMD5 = &s.config.SseCDigest
+	}
+
+	if s.config.ACL != "" {
+		params.ACL = &s.config.ACL
+	}
+
+	req, _ := s.CopyObjectRequest(params)
+
+	withHeader(req, "X-Tigris-Rename", "true")
+
+	err := req.Send()
+	if err != nil {
+		s3Log.Warn().Interface("params", params).Err(err).Msg("RenameObject failed")
+		return nil, err
+	}
+
+	return &RenameBlobOutput{s.getRequestId(req)}, nil
 }
 
 func (s *S3Backend) mpuCopyPart(from string, to string, mpuId string, bytes string, part int64, srcEtag *string) (*string, error) {
