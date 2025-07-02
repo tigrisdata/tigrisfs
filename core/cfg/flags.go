@@ -148,16 +148,6 @@ MISC OPTIONS:
 		},
 
 		cli.BoolFlag{
-			Name:  "tigris-prefetch",
-			Usage: "Enable Tigris prefetch on list (default: off)",
-		},
-
-		cli.BoolFlag{
-			Name:  "tigris-list-content",
-			Usage: "Include inlined objects content in list (default: on)",
-		},
-
-		cli.BoolFlag{
 			Name:  "refresh-dirs",
 			Usage: "Automatically refresh open directories using notifications under Windows",
 		},
@@ -660,6 +650,21 @@ MISC OPTIONS:
 			Value: 512,
 			Usage: "Simultaneously opened cache file descriptor limit",
 		},
+
+		cli.BoolFlag{
+			Name:  "tigris-prefetch",
+			Usage: "Enable Tigris prefetch on list (default: off)",
+		},
+
+		cli.BoolFlag{
+			Name:  "tigris-list-content",
+			Usage: "Include inlined objects content in list (default: on)",
+		},
+
+		cli.BoolFlag{
+			Name:  "no-instant-rename",
+			Usage: "Disable Tigris 'instant' rename (default: off)",
+		},
 	}
 
 	if runtime.GOOS == "windows" {
@@ -956,6 +961,7 @@ func PopulateFlags(c *cli.Context) (ret *FlagStorage) {
 		ClusterGrpcReflection: c.Bool("grpc-reflection"),
 
 		TigrisPrefetch:    c.Bool("tigris-prefetch"),
+		TigrisRename:      !c.Bool("no-instant-rename"),
 		TigrisListContent: c.Bool("tigris-list-content"),
 	}
 
@@ -1001,8 +1007,10 @@ func PopulateFlags(c *cli.Context) (ret *FlagStorage) {
 			panic("Unknown --iam-flavor: " + config.IAMFlavor)
 		}
 
+		flags.IsTigrisEndpoint()
+
 		// special enabled for the Tigris by default
-		if flags.IsTigris() {
+		if flags.IsTigris {
 			flags.EnableSpecials = !c.IsSet("no-specials")
 		}
 
@@ -1140,5 +1148,6 @@ func DefaultFlags() *FlagStorage {
 		},
 		TigrisPrefetch:    false,
 		TigrisListContent: true,
+		TigrisRename:      true,
 	}
 }
