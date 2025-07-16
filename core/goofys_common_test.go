@@ -410,8 +410,7 @@ func (s *GoofysTest) setupBlobs(cloud StorageBackend, t *C, env map[string]*stri
 			t.Assert(err, IsNil)
 		}(path, c)
 	}
-	throttler.V(concurrency)
-	throttler = NewSemaphore(concurrency)
+	// Wait for all goroutines to complete by acquiring all slots back
 	throttler.P(concurrency)
 	t.Assert(globalErr.Load(), IsNil)
 
@@ -442,7 +441,8 @@ func (s *GoofysTest) setupBlobs(cloud StorageBackend, t *C, env map[string]*stri
 				}
 			}(path, c)
 		}
-		throttler.V(concurrency)
+		// Wait for all goroutines to complete
+		throttler.P(concurrency)
 		t.Assert(globalErr.Load(), IsNil)
 	}
 }
