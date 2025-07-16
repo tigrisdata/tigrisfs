@@ -129,7 +129,7 @@ func waitFor(t *C, addr string) (err error) {
 
 func (t *GoofysTest) deleteBlobsParallelly(cloud StorageBackend, blobs []string) error {
 	const concurrency = 10
-	sem := make(semaphore, concurrency)
+	sem := NewSemaphore(concurrency)
 	sem.P(concurrency)
 	var err error
 	for _, blobOuter := range blobs {
@@ -373,7 +373,7 @@ func (s *GoofysTest) removeBlob(cloud StorageBackend, t *C, blobPath string) {
 
 func (s *GoofysTest) setupBlobs(cloud StorageBackend, t *C, env map[string]*string) {
 	const concurrency = 10
-	throttler := make(semaphore, concurrency)
+	throttler := NewSemaphore(concurrency)
 	throttler.P(concurrency)
 
 	var globalErr atomic.Value
@@ -411,7 +411,7 @@ func (s *GoofysTest) setupBlobs(cloud StorageBackend, t *C, env map[string]*stri
 		}(path, c)
 	}
 	throttler.V(concurrency)
-	throttler = make(semaphore, concurrency)
+	throttler = NewSemaphore(concurrency)
 	throttler.P(concurrency)
 	t.Assert(globalErr.Load(), IsNil)
 

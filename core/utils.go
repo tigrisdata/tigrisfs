@@ -16,10 +16,13 @@
 package core
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
 	"unicode"
+
+	"golang.org/x/sync/semaphore"
 )
 
 var TIME_MAX = time.Unix(1<<63-62135596801, 999999999)
@@ -170,20 +173,22 @@ func Dup(value []byte) []byte {
 	return ret
 }
 
-type empty struct{}
+type Semaphore struct {
+	sem *semaphore.Weighted
+}
 
-// TODO(dotslash/khc): Remove this semaphore in favor of
-// https://godoc.org/golang.org/x/sync/semaphore
-type semaphore chan empty
-
-func (sem semaphore) P(n int) {
-	for i := 0; i < n; i++ {
-		sem <- empty{}
+func NewSemaphore(n int64) *Semaphore {
+	return &Semaphore{
+		sem: semaphore.NewWeighted(n),
 	}
 }
 
-func (sem semaphore) V(n int) {
-	for i := 0; i < n; i++ {
-		<-sem
+func (s *Semaphore) P(n int) {
+	if err := s.sem.Acquire(context.Background(), int64(n)); err != nil {
+		panic(err)
 	}
+}
+
+func (s *Semaphore) V(n int) {
+	s.sem.Release(int64(n))
 }
