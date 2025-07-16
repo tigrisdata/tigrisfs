@@ -173,22 +173,29 @@ func Dup(value []byte) []byte {
 	return ret
 }
 
+// Semaphore is a counting semaphore implementation using golang.org/x/sync/semaphore.
+// It provides P (wait/acquire) and V (signal/release) operations.
 type Semaphore struct {
 	sem *semaphore.Weighted
 }
 
-func NewSemaphore(n int64) *Semaphore {
+// NewSemaphore creates a new semaphore with the given initial count.
+// The count represents the number of resources available.
+func NewSemaphore(n int) *Semaphore {
 	return &Semaphore{
-		sem: semaphore.NewWeighted(n),
+		sem: semaphore.NewWeighted(int64(n)),
 	}
 }
 
+// P (proberen/wait) acquires n resources from the semaphore, blocking until they are available.
+// It panics if the context is canceled.
 func (s *Semaphore) P(n int) {
 	if err := s.sem.Acquire(context.Background(), int64(n)); err != nil {
 		panic(err)
 	}
 }
 
+// V (verhogen/signal) releases n resources back to the semaphore.
 func (s *Semaphore) V(n int) {
 	s.sem.Release(int64(n))
 }
