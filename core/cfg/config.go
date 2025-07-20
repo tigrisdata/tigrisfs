@@ -131,6 +131,9 @@ type FlagStorage struct {
 
 	TigrisPrefetch    bool
 	TigrisListContent bool
+	TigrisRename      bool
+
+	IsTigris bool
 }
 
 func (flags *FlagStorage) GetMimeType(fileName string) (retMime *string) {
@@ -163,9 +166,9 @@ func (flags *FlagStorage) Cleanup() {
 	}
 }
 
-func (flags *FlagStorage) IsTigris() bool {
-	return strings.Contains(flags.Endpoint, "tigris.dev") ||
-		strings.Contains(flags.Endpoint, "storage.dev")
+func (flags *FlagStorage) IsTigrisEndpoint() {
+	flags.IsTigris = strings.Contains(flags.Endpoint, ".tigris.dev") ||
+		strings.Contains(flags.Endpoint, ".storage.dev")
 }
 
 var defaultHTTPTransport = http.Transport{

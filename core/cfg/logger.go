@@ -42,12 +42,12 @@ func InitLoggers(flags *FlagStorage) error {
 		Format: flags.LogFormat,
 	}
 
-	if (lib.IsTTY(os.Stdout) || lib.IsTTY(os.Stderr)) && log.DefaultLogConfig.Format == "" && lf == "stderr" {
+	if (lib.IsTTY(os.Stdout) || lib.IsTTY(os.Stderr)) && log.DefaultLogConfig.Format == "" && (lf == "stderr" || lf == "syslog") {
 		log.DefaultLogConfig.Format = "console"
 	}
 
 	log.DefaultLogConfig.Color = true
-	if flags.NoLogColor {
+	if flags.NoLogColor || lf == "syslog" {
 		log.DefaultLogConfig.Color = false
 	}
 

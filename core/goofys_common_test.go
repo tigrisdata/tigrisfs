@@ -283,7 +283,7 @@ func (s *GoofysTest) waitForEmulator(t *C, addr string) {
 func (s *GoofysTest) deleteBucket(cloud StorageBackend) error {
 	var err error
 	// FIXME: Tigris returns 500 for RemoveBucket. Skip it for now.
-	if s.isLocalTigris {
+	if s.isTigris {
 		return nil
 	}
 	for i := 0; i < 5; i++ {
@@ -540,7 +540,7 @@ func (s *GoofysTest) SetUpTest(t *C) {
 			s.cloud = NewS3BucketEventualConsistency(s3)
 		}
 
-		if s.emulator && !TigrisDetected(flags) {
+		if s.emulator && !TigrisDetectedForTests(flags) {
 			s3.Handlers.Sign.Clear()
 			s3.Handlers.Sign.PushBack(SignV2)
 			s3.Handlers.Sign.PushBackNamed(corehandlers.BuildContentLengthHandler)
@@ -659,8 +659,8 @@ func (s *GoofysTest) SetUpTest(t *C) {
 		t.Fatal("Unsupported backend")
 	}
 
-	s.isTigris = TigrisDetected(flags)
-	s.isLocalTigris = LocalTigrisDetected(flags)
+	s.isTigris = TigrisDetectedForTests(flags)
+	s.isLocalTigris = LocalTigrisDetectedForTests(flags)
 	testLog.Infof("Tigris detected: %v, local: %v", s.isTigris, s.isLocalTigris)
 
 	if s.isLocalTigris {
@@ -671,6 +671,14 @@ func (s *GoofysTest) SetUpTest(t *C) {
 		_, err := s.cloud.MakeBucket(&MakeBucketInput{})
 		t.Assert(err, IsNil)
 		s.removeBucket = append(s.removeBucket, s.cloud)
+	} else {
+		resp, err := s.cloud.ListBlobs(&ListBlobsInput{})
+		t.Assert(err, IsNil)
+		for _, item := range resp.Items {
+		
+			_, err = s.cloud.DeleteBlob(&DeleteBlobInput{Key: *item.Key})
+			t.Assert(err, IsNil)
+		}
 	}
 
 	s.setupDefaultEnv(t, "")
