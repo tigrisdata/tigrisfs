@@ -622,7 +622,9 @@ func (dh *DirHandle) listObjectsFlat() (start string, err error) {
 			dh.inode.dir.listMarker = lastName
 		}
 	} else {
+		dh.mu.Unlock()
 		dh.inode.sealDir()
+		dh.mu.Lock()
 	}
 
 	dh.inode.mu.Unlock()
