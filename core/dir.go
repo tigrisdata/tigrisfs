@@ -636,9 +636,11 @@ func (dh *DirHandle) listObjectsFlat() (start string, err error) {
 		// We must release dh.mu before calling sealDir to avoid deadlock
 		dh.mu.Unlock()
 		dh.inode.sealDir()
+		// Reload generation immediately after sealDir completes to get accurate state
+		currentGen := atomic.LoadUint64(&dh.inode.dir.generation)
 		dh.mu.Lock()
 		// Update our generation to match the new state
-		dh.generation = atomic.LoadUint64(&dh.inode.dir.generation)
+		dh.generation = currentGen
 	}
 
 	dh.inode.mu.Unlock()
