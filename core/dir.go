@@ -93,7 +93,10 @@ type DirHandle struct {
 }
 
 func NewDirHandle(inode *Inode) (dh *DirHandle) {
-	dh = &DirHandle{inode: inode}
+	dh = &DirHandle{
+		inode:      inode,
+		generation: atomic.LoadUint64(&inode.dir.generation),
+	}
 	return
 }
 
@@ -775,6 +778,7 @@ func (dh *DirHandle) Seek(newOffset fuseops.DirOffset) {
 		dh.lastExternalOffset = 0
 		dh.lastInternalOffset = 0
 		dh.lastName = ""
+		dh.generation = atomic.LoadUint64(&dh.inode.dir.generation)
 	}
 }
 
