@@ -31,6 +31,10 @@ get-deps: s3proxy.jar
 build:
 	go build $(BUILD_PARAM)
 
+.PHONY: docker-build
+docker-build:
+	docker build --output dist .
+
 build-debug:
 	CGO_ENABLED=1 go build -race $(BUILD_PARAM)
 
