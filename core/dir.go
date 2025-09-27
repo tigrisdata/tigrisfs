@@ -60,6 +60,7 @@ type DirInodeData struct {
 	DeletedChildren map[string]*Inode
 	Gaps            []*SlurpGap
 	handles         []*DirHandle
+	generation      uint64 // incremented on structural changes
 }
 
 // Returns the position of first char < '/' in `inp` after prefixLen + any continued '/' characters.
@@ -87,6 +88,7 @@ type DirHandle struct {
 	// or from the previous offset
 	lastExternalOffset fuseops.DirOffset
 	lastInternalOffset int
+	generation         uint64 // tracks directory structure changes
 	lastName           string
 }
 
@@ -385,7 +387,9 @@ func (dir *DirInodeData) checkGapLoaded(key string, newerThan time.Time) bool {
 	return false
 }
 
+// sealDir completes directory listing and cleans up expired entries
 // LOCKS_REQUIRED(inode.mu)
+// LOCKS_EXCLUDED(dh.mu for all directory handles)
 func (inode *Inode) sealDir() {
 	inode.dir.listMarker = ""
 	inode.dir.listDone = true
@@ -397,6 +401,10 @@ func (inode *Inode) sealDir() {
 	} else {
 		inode.Attributes.Mtime, inode.Attributes.Ctime = inode.findChildMaxTime()
 	}
+	
+	// Increment generation to signal all handles need revalidation
+	atomic.AddUint64(&inode.dir.generation, 1)
+	
 	inode.removeExpired("")
 }
 
@@ -622,7 +630,14 @@ func (dh *DirHandle) listObjectsFlat() (start string, err error) {
 			dh.inode.dir.listMarker = lastName
 		}
 	} else {
+		// We must release dh.mu before calling sealDir to avoid deadlock
+		// Save the current generation before unlocking
+		currentGen := atomic.LoadUint64(&dh.inode.dir.generation)
+		dh.mu.Unlock()
 		dh.inode.sealDir()
+		dh.mu.Lock()
+		// Update our generation to match the new state
+		dh.generation = currentGen + 1 // We know it was incremented in sealDir
 	}
 
 	dh.inode.mu.Unlock()
@@ -633,6 +648,13 @@ func (dh *DirHandle) listObjectsFlat() (start string, err error) {
 // LOCKS_REQUIRED(dh.mu)
 // LOCKS_REQUIRED(dh.inode.mu)
 func (dh *DirHandle) checkDirPosition() {
+	// Check if directory structure changed since we last checked
+	currentGen := atomic.LoadUint64(&dh.inode.dir.generation)
+	if dh.generation != currentGen {
+		dh.lastInternalOffset = -1
+		dh.generation = currentGen
+	}
+	
 	if dh.lastInternalOffset < 0 {
 		parent := dh.inode
 		// Directory position invalidated, try to find it again using lastName
@@ -996,6 +1018,10 @@ func (parent *Inode) removeChildUnlocked(inode *Inode) {
 	if l == 0 {
 		return
 	}
+	
+	// Increment generation to invalidate all directory handles
+	atomic.AddUint64(&parent.dir.generation, 1)
+	
 	i := sort.Search(l, parent.findInodeFunc(inode.Name))
 	if i >= l || parent.dir.Children[i].Name != inode.Name {
 		panic(fmt.Sprintf("%v.removeName(%v) but child not found: %v",
@@ -1004,11 +1030,7 @@ func (parent *Inode) removeChildUnlocked(inode *Inode) {
 
 	// POSIX allows parallel readdir() and modifications,
 	// so preserve position of all directory handles
-	for _, dh := range parent.dir.handles {
-		dh.mu.Lock()
-		dh.lastInternalOffset = -1
-		dh.mu.Unlock()
-	}
+	// Handles will detect the generation change and reset themselves
 	// >= because we use the "last open dir" as the "next" one
 	if parent.dir.lastOpenDirIdx >= i {
 		parent.dir.lastOpenDirIdx--
@@ -1038,11 +1060,8 @@ func (parent *Inode) removeAllChildrenUnlocked() {
 		child.DeRef(1)
 		child.mu.Unlock()
 	}
-	// POSIX allows parallel readdir() and modifications,
-	// so reset position of all directory handles
-	for _, dh := range parent.dir.handles {
-		dh.lastInternalOffset = -1
-	}
+	// Increment generation to invalidate all directory handles
+	atomic.AddUint64(&parent.dir.generation, 1)
 	parent.dir.Children = nil
 }
 
@@ -1091,11 +1110,8 @@ func (parent *Inode) insertChildUnlocked(inode *Inode) {
 			panic(fmt.Sprintf("double insert of %v", parent.getChildName(inode.Name)))
 		}
 
-		// POSIX allows parallel readdir() and modifications,
-		// so preserve position of all directory handles
-		for _, dh := range parent.dir.handles {
-			dh.lastInternalOffset = -1
-		}
+		// Increment generation to invalidate all directory handles
+		atomic.AddUint64(&parent.dir.generation, 1)
 		if parent.dir.lastOpenDirIdx >= i {
 			parent.dir.lastOpenDirIdx++
 		}
