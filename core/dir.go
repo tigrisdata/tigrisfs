@@ -631,13 +631,11 @@ func (dh *DirHandle) listObjectsFlat() (start string, err error) {
 		}
 	} else {
 		// We must release dh.mu before calling sealDir to avoid deadlock
-		// Save the current generation before unlocking
-		currentGen := atomic.LoadUint64(&dh.inode.dir.generation)
 		dh.mu.Unlock()
 		dh.inode.sealDir()
 		dh.mu.Lock()
 		// Update our generation to match the new state
-		dh.generation = currentGen + 1 // We know it was incremented in sealDir
+		dh.generation = atomic.LoadUint64(&dh.inode.dir.generation)
 	}
 
 	dh.inode.mu.Unlock()
@@ -649,6 +647,9 @@ func (dh *DirHandle) listObjectsFlat() (start string, err error) {
 // LOCKS_REQUIRED(dh.inode.mu)
 func (dh *DirHandle) checkDirPosition() {
 	// Check if directory structure changed since we last checked
+	// Note: There's a benign race here where generation could change between
+	// the load and assignment. This is acceptable as we'll catch it on the
+	// next operation. The worst case is an unnecessary position reset.
 	currentGen := atomic.LoadUint64(&dh.inode.dir.generation)
 	if dh.generation != currentGen {
 		dh.lastInternalOffset = -1
