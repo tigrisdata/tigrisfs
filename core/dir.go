@@ -381,14 +381,21 @@ func (parent *Inode) listObjectsSlurp(inode *Inode, startAfter string, sealEnd b
 			// Just seal the inode directly.
 			if inode != parent {
 				inode.mu.Lock()
-			}
-			inode.sealDir()
-			if inode != parent {
+				inode.sealDir()
 				inode.mu.Unlock()
+			} else {
+				// inode == parent, caller holds parent.mu so we can seal directly
+				inode.sealDir()
 			}
 		}
 
 		nextStartAfter = ""
+
+		// Must return here to avoid falling through to the else block below
+		if lock {
+			parent.mu.Unlock()
+		}
+		return
 	} else {
 		if obj != nil {
 			// NextContinuationToken is not returned when delimiter is empty, so use obj.Key
