@@ -1994,6 +1994,27 @@ func (parent *Inode) recheckInode(inode *Inode, name string) (newInode *Inode, e
 	return newInode, nil
 }
 
+// recheckInodeByName is similar to recheckInode but finds the current child by name
+// first to ensure we're working with the most up-to-date inode instance.
+// This avoids issues with stale inode references that might not match what's
+// currently in the parent's children list.
+func (parent *Inode) recheckInodeByName(name string) (newInode *Inode, err error) {
+	// First get the current child if it exists
+	parent.mu.Lock()
+	currentChild := parent.findChildUnlocked(name)
+	parent.mu.Unlock()
+	
+	newInode, err = parent.LookUp(name, currentChild == nil && !parent.fs.flags.NoPreloadDir)
+	if err != nil {
+		if currentChild != nil {
+			// Remove the actual current child from parent's children list
+			parent.removeChild(currentChild)
+		}
+		return nil, err
+	}
+	return newInode, nil
+}
+
 func (parent *Inode) LookUp(name string, doSlurp bool) (*Inode, error) {
 	_, parentKey := parent.cloud()
 	key := appendChildName(parentKey, name)
