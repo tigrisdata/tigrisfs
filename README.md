@@ -34,17 +34,23 @@ When mounted with the [Tigris](https://www.tigrisdata.com) backend TigrisFS supp
 
 # Installation
 
+## Recommended: One-line install
+
+```bash
+curl -sSL https://raw.githubusercontent.com/tigrisdata/tigrisfs/refs/heads/main/install.sh | bash
+```
+
 ## Prebuilt DEB and RPM packages 
 
-* Download the latest release: [DEB](https://github.com/tigrisdata/tigrisfs/releases/download/v1.2.0/tigrisfs_1.2.0_linux_amd64.deb), [RPM](https://github.com/tigrisdata/tigrisfs/releases/download/v1.2.0/tigrisfs_1.2.0_linux_amd64.rpm).
+* Download the latest release: [DEB](https://github.com/tigrisdata/tigrisfs/releases/download/v1.2.1/tigrisfs_1.2.1_linux_amd64.deb), [RPM](https://github.com/tigrisdata/tigrisfs/releases/download/v1.2.1/tigrisfs_1.2.1_linux_amd64.rpm).
 * Install the package:
   * Debian-based systems:
     ```bash
-    dpkg -i tigrisfs_1.2.0_linux_amd64.deb
+    dpkg -i tigrisfs_1.2.1_linux_amd64.deb
     ```
   * RPM-based systems:
     ```bash
-    rpm -i tigrisfs_1.2.0_linux_amd64.rpm
+    rpm -i tigrisfs_1.2.1_linux_amd64.rpm
     ```
 * Configure credentials
   TigrisFS can use credentials from different sources:
@@ -59,19 +65,19 @@ See [docs](https://www.tigrisdata.com/docs/sdks/s3/aws-cli/) for more details.
     ```bash
     systemctl --user start tigrisfs@<bucket>
     ```
-    The bucket is mounted at `$HOME/mnt/tigrisfs/<bucket>`.
+    The bucket is mounted at `$HOME/mnt/tigris/<bucket>`.
   * as root
     ```bash
     systemctl start tigrisfs@<bucket>
     ```
-    The bucket is mounted at `/mnt/tigrisfs/<bucket>`.
+    The bucket is mounted at `/mnt/tigris/<bucket>`.
 
 ## Binary install
 
 * Download and unpack the latest release:
   * MacOS ARM64
     ```
-      curl -L https://github.com/tigrisdata/tigrisfs/releases/download/v1.2.0/tigrisfs_1.2.0_darwin_arm64.tar.gz | sudo tar -xz -C /usr/local/bin
+      curl -L https://github.com/tigrisdata/tigrisfs/releases/download/v1.2.1/tigrisfs_1.2.1_darwin_arm64.tar.gz | sudo tar -xz -C /usr/local/bin
     ```
 * Configuration is the same as for the DEB and RPM packages above.
 * Mount the bucket:

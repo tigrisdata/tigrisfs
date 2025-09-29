@@ -129,13 +129,12 @@ func waitFor(t *C, addr string) (err error) {
 
 func (t *GoofysTest) deleteBlobsParallelly(cloud StorageBackend, blobs []string) error {
 	const concurrency = 10
-	sem := make(semaphore, concurrency)
-	sem.P(concurrency)
+	sem := NewSemaphore(concurrency)
 	var err error
 	for _, blobOuter := range blobs {
-		sem.V(1)
+		sem.P(1) // Acquire slot
 		go func(blob string) {
-			defer sem.P(1)
+			defer sem.V(1) // Release slot
 			_, localerr := cloud.DeleteBlob(&DeleteBlobInput{blob})
 			if localerr != nil && localerr != syscall.ENOENT {
 				err = localerr
@@ -145,7 +144,9 @@ func (t *GoofysTest) deleteBlobsParallelly(cloud StorageBackend, blobs []string)
 			break
 		}
 	}
-	sem.V(concurrency)
+	// Wait for all goroutines to complete
+	sem.P(concurrency)
+	sem.V(concurrency) // Release them back
 	return err
 }
 
@@ -373,12 +374,11 @@ func (s *GoofysTest) removeBlob(cloud StorageBackend, t *C, blobPath string) {
 
 func (s *GoofysTest) setupBlobs(cloud StorageBackend, t *C, env map[string]*string) {
 	const concurrency = 10
-	throttler := make(semaphore, concurrency)
-	throttler.P(concurrency)
+	throttler := NewSemaphore(concurrency)
 
 	var globalErr atomic.Value
 	for path, c := range env {
-		throttler.V(1)
+		throttler.P(1) // Acquire slot before spawning goroutine
 		go func(path string, content *string) {
 			dir := false
 			if content == nil {
@@ -392,7 +392,7 @@ func (s *GoofysTest) setupBlobs(cloud StorageBackend, t *C, env map[string]*stri
 					content = &path
 				}
 			}
-			defer throttler.P(1)
+			defer throttler.V(1) // Release slot when goroutine completes
 			params := &PutBlobInput{
 				Key:  path,
 				Body: bytes.NewReader([]byte(*content)),
@@ -410,9 +410,10 @@ func (s *GoofysTest) setupBlobs(cloud StorageBackend, t *C, env map[string]*stri
 			t.Assert(err, IsNil)
 		}(path, c)
 	}
-	throttler.V(concurrency)
-	throttler = make(semaphore, concurrency)
+	// Wait for all goroutines to complete by acquiring all slots
 	throttler.P(concurrency)
+	// Release them back
+	throttler.V(concurrency)
 	t.Assert(globalErr.Load(), IsNil)
 
 	// double check, except on AWS S3, because there we sometimes
@@ -420,9 +421,9 @@ func (s *GoofysTest) setupBlobs(cloud StorageBackend, t *C, env map[string]*stri
 	// from 404 KeyNotFound
 	if !hasEnv("AWS") {
 		for path, c := range env {
-			throttler.V(1)
+			throttler.P(1) // Acquire slot
 			go func(path string, content *string) {
-				defer throttler.P(1)
+				defer throttler.V(1) // Release slot
 				params := &HeadBlobInput{Key: path}
 				res, err := cloud.HeadBlob(params)
 				if err != nil {
@@ -442,7 +443,9 @@ func (s *GoofysTest) setupBlobs(cloud StorageBackend, t *C, env map[string]*stri
 				}
 			}(path, c)
 		}
-		throttler.V(concurrency)
+		// Wait for all goroutines to complete
+		throttler.P(concurrency)
+		throttler.V(concurrency) // Release them back
 		t.Assert(globalErr.Load(), IsNil)
 	}
 }

@@ -16,10 +16,13 @@
 package core
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
 	"unicode"
+
+	"golang.org/x/sync/semaphore"
 )
 
 var TIME_MAX = time.Unix(1<<63-62135596801, 999999999)
@@ -170,20 +173,29 @@ func Dup(value []byte) []byte {
 	return ret
 }
 
-type empty struct{}
+// Semaphore is a counting semaphore implementation using golang.org/x/sync/semaphore.
+// It provides P (wait/acquire) and V (signal/release) operations.
+type Semaphore struct {
+	sem *semaphore.Weighted
+}
 
-// TODO(dotslash/khc): Remove this semaphore in favor of
-// https://godoc.org/golang.org/x/sync/semaphore
-type semaphore chan empty
-
-func (sem semaphore) P(n int) {
-	for i := 0; i < n; i++ {
-		sem <- empty{}
+// NewSemaphore creates a new semaphore with the given initial count.
+// The count represents the number of resources available.
+func NewSemaphore(n int) *Semaphore {
+	return &Semaphore{
+		sem: semaphore.NewWeighted(int64(n)),
 	}
 }
 
-func (sem semaphore) V(n int) {
-	for i := 0; i < n; i++ {
-		<-sem
+// P (proberen/wait) acquires n resources from the semaphore, blocking until they are available.
+// It panics if the context is canceled.
+func (s *Semaphore) P(n int) {
+	if err := s.sem.Acquire(context.Background(), int64(n)); err != nil {
+		panic(err)
 	}
+}
+
+// V (verhogen/signal) releases n resources back to the semaphore.
+func (s *Semaphore) V(n int) {
+	s.sem.Release(int64(n))
 }
