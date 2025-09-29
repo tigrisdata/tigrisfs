@@ -345,6 +345,8 @@ func (parent *Inode) listObjectsSlurp(inode *Inode, startAfter string, sealEnd b
 		var inodeGen uint64
 		if inode != parent {
 			inodeGen = atomic.LoadUint64(&inode.dir.generation)
+		} else {
+			inodeGen = atomic.LoadUint64(&parent.dir.generation)
 		}
 
 		// Remember this range as already loaded before we release locks
@@ -366,7 +368,10 @@ func (parent *Inode) listObjectsSlurp(inode *Inode, startAfter string, sealEnd b
 			} else {
 				// inode == parent, need to reacquire to seal
 				parent.mu.Lock()
-				inode.sealDir()
+				// Check if generation changed while we didn't hold the lock
+				if atomic.LoadUint64(&parent.dir.generation) == inodeGen {
+					inode.sealDir()
+				}
 				parent.mu.Unlock()
 			}
 		} else {
