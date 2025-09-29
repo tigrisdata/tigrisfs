@@ -287,17 +287,42 @@ func (parent *Inode) listObjectsSlurp(inode *Inode, startAfter string, sealEnd b
 		}
 	}
 
-	for d, sealed := range dirs {
-		// It's not safe to seal upper directories, we're not slurping at their start
-		if (sealed || !resp.IsTruncated) && !d.isParentOf(inode) {
-			if d != parent {
-				d.mu.Lock()
-			}
-			d.sealDir()
-			if d != parent {
-				d.mu.Unlock()
+	// Build list of directories to seal and capture their generations
+	// We must release parent.mu before sealing to avoid deadlock
+	// However, when lock=false, caller is responsible for lock ordering,
+	// so we skip sealing children to avoid potential deadlocks.
+	if lock {
+		type sealInfo struct {
+			inode *Inode
+			gen   uint64
+		}
+		toSeal := make([]sealInfo, 0, len(dirs))
+		for d, sealed := range dirs {
+			// It's not safe to seal upper directories, we're not slurping at their start
+			if (sealed || !resp.IsTruncated) && !d.isParentOf(inode) {
+				toSeal = append(toSeal, sealInfo{
+					inode: d,
+					gen:   atomic.LoadUint64(&d.dir.generation),
+				})
 			}
 		}
+
+		// Release parent lock before sealing children to avoid lock ordering issues
+		parent.mu.Unlock()
+
+		// Seal directories without holding parent lock
+		for _, info := range toSeal {
+			info.inode.mu.Lock()
+			// Check if generation changed while we didn't hold the lock
+			// If it changed, someone else modified the directory, so skip sealing
+			if atomic.LoadUint64(&info.inode.dir.generation) == info.gen {
+				info.inode.sealDir()
+			}
+			info.inode.mu.Unlock()
+		}
+
+		// Reacquire parent lock
+		parent.mu.Lock()
 	}
 
 	var obj *BlobItemOutput
@@ -317,24 +342,59 @@ func (parent *Inode) listObjectsSlurp(inode *Inode, startAfter string, sealEnd b
 	}
 
 	if seal {
+		var inodeGen uint64
 		if inode != parent {
-			inode.mu.Lock()
+			inodeGen = atomic.LoadUint64(&inode.dir.generation)
 		}
-		inode.sealDir()
-		if inode != parent {
-			inode.mu.Unlock()
+
+		// Remember this range as already loaded before we release locks
+		parent.dir.markGapLoaded(NilStr(startWith), nextStartAfter)
+
+		// When lock=true, we need to release parent lock before sealing inode
+		// to avoid lock ordering issues. When lock=false, caller already holds
+		// the lock and we must NOT release it (they'll handle lock ordering).
+		if lock {
+			parent.mu.Unlock()
+
+			if inode != parent {
+				inode.mu.Lock()
+				// Check if generation changed while we didn't hold the lock
+				if atomic.LoadUint64(&inode.dir.generation) == inodeGen {
+					inode.sealDir()
+				}
+				inode.mu.Unlock()
+			} else {
+				// inode == parent, need to reacquire to seal
+				parent.mu.Lock()
+				inode.sealDir()
+				parent.mu.Unlock()
+			}
+		} else {
+			// lock=false: Caller holds parent.mu, so we can't do unlock/relock.
+			// This is used by Rename which already handles lock ordering properly.
+			// Just seal the inode directly.
+			if inode != parent {
+				inode.mu.Lock()
+			}
+			inode.sealDir()
+			if inode != parent {
+				inode.mu.Unlock()
+			}
 		}
+
 		nextStartAfter = ""
-	} else if obj != nil {
-		// NextContinuationToken is not returned when delimiter is empty, so use obj.Key
-		nextStartAfter = *obj.Key
-	}
+	} else {
+		if obj != nil {
+			// NextContinuationToken is not returned when delimiter is empty, so use obj.Key
+			nextStartAfter = *obj.Key
+		}
 
-	// Remember this range as already loaded
-	parent.dir.markGapLoaded(NilStr(startWith), nextStartAfter)
+		// Remember this range as already loaded
+		parent.dir.markGapLoaded(NilStr(startWith), nextStartAfter)
 
-	if lock {
-		parent.mu.Unlock()
+		if lock {
+			parent.mu.Unlock()
+		}
 	}
 
 	return
