@@ -342,15 +342,17 @@ func (parent *Inode) listObjectsSlurp(inode *Inode, startAfter string, sealEnd b
 	}
 
 	if seal {
+		// Remember this range as already loaded before we release locks
+		parent.dir.markGapLoaded(NilStr(startWith), nextStartAfter)
+
 		var inodeGen uint64
+
+		// Capture generation right before unlocking to minimize staleness window
 		if inode != parent {
 			inodeGen = atomic.LoadUint64(&inode.dir.generation)
 		} else {
 			inodeGen = atomic.LoadUint64(&parent.dir.generation)
 		}
-
-		// Remember this range as already loaded before we release locks
-		parent.dir.markGapLoaded(NilStr(startWith), nextStartAfter)
 
 		// When lock=true, we need to release parent lock before sealing inode
 		// to avoid lock ordering issues. When lock=false, caller already holds
@@ -366,13 +368,12 @@ func (parent *Inode) listObjectsSlurp(inode *Inode, startAfter string, sealEnd b
 				}
 				inode.mu.Unlock()
 			} else {
-				// inode == parent, need to reacquire to seal
-				parent.mu.Lock()
-				// Check if generation changed while we didn't hold the lock
+				// inode == parent, we already hold the lock so seal directly
+				// Check generation one more time since we captured it earlier
 				if atomic.LoadUint64(&parent.dir.generation) == inodeGen {
 					inode.sealDir()
 				}
-				parent.mu.Unlock()
+				// Keep the lock since we still hold parent.mu
 			}
 		} else {
 			// lock=false: Caller holds parent.mu, so we can't do unlock/relock.
