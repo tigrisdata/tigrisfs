@@ -725,9 +725,10 @@ func (dh *DirHandle) loadListing() error {
 		dh.mu.Lock()
 		parent.mu.Lock()
 		// Check if generation changed while we were unlocked
-		if atomic.LoadUint64(&parent.dir.generation) != currentGen {
+		newGen := atomic.LoadUint64(&parent.dir.generation)
+		if newGen != currentGen {
 			// Directory structure changed, reset our position
-			dh.generation = atomic.LoadUint64(&parent.dir.generation)
+			dh.generation = newGen
 			dh.lastInternalOffset = -1
 		}
 		if err != nil {
@@ -753,10 +754,13 @@ func (dh *DirHandle) loadListing() error {
 		}
 		parent.mu.Lock()
 		// Check if generation changed while we were unlocked
-		if atomic.LoadUint64(&parent.dir.generation) != currentGen {
-			// Directory structure changed, reset our position
-			dh.generation = atomic.LoadUint64(&parent.dir.generation)
+		newGen := atomic.LoadUint64(&parent.dir.generation)
+		if newGen != currentGen {
+			// Directory structure changed, reset our position and invalidate startMarker
+			dh.generation = newGen
 			dh.lastInternalOffset = -1
+			// Clear startMarker to prevent removeExpired from operating on stale range
+			startMarker = ""
 		}
 		if err != nil {
 			return err
