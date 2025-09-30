@@ -290,7 +290,7 @@ func (parent *Inode) listObjectsSlurp(inode *Inode, startAfter string, sealEnd b
 	// Build list of directories to seal and capture their generations
 	// We must release parent.mu before sealing to avoid deadlock
 	// However, when lock=false, caller is responsible for lock ordering,
-	// so we skip sealing children to avoid potential deadlocks.
+	// so we skip sealing children and must NOT unlock/relock parent.mu.
 	if lock {
 		type sealInfo struct {
 			inode *Inode
@@ -324,6 +324,8 @@ func (parent *Inode) listObjectsSlurp(inode *Inode, startAfter string, sealEnd b
 		// Reacquire parent lock
 		parent.mu.Lock()
 	}
+	// When lock=false, caller holds parent.mu and expects us to keep it locked
+	// throughout. We skip child sealing and must not unlock/relock here.
 
 	var obj *BlobItemOutput
 	if len(resp.Items) > 0 {
