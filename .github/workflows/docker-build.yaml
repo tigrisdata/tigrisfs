@@ -1,0 +1,18 @@
+name: docker-build
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: checkout repo
+      uses: actions/checkout@main
+    - name: build application
+      run: make docker-build
+    - name: check dist
+      run: ls -l dist/ && file dist/tigrisfs
+
