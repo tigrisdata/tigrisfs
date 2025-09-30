@@ -355,45 +355,76 @@ func (parent *Inode) listObjectsSlurp(inode *Inode, startAfter string, sealEnd b
 		// the lock and we must NOT release it (they'll handle lock ordering).
 		if lock {
 			if inode != parent {
-				// Capture parent generation before unlocking to validate later
+				// Capture both parent and inode generations before unlocking to validate later
 				parentGen := atomic.LoadUint64(&parent.dir.generation)
+				inodeGen := atomic.LoadUint64(&inode.dir.generation)
 				parent.mu.Unlock()
 
 				// Seal the inode without holding parent lock
 				inode.mu.Lock()
-				inode.sealDir()
+				// Verify inode hasn't been modified before sealing
+				if atomic.LoadUint64(&inode.dir.generation) == inodeGen {
+					inode.sealDir()
+					// Verify seal incremented generation by exactly 1
+					if atomic.LoadUint64(&inode.dir.generation) != inodeGen+1 {
+						// Generation didn't increment correctly, seal failed
+						inode.mu.Unlock()
+						parent.mu.Lock()
+						nextStartAfter = calculatedNextStartAfter
+						parent.mu.Unlock()
+						return
+					}
+				}
 				inode.mu.Unlock()
 
 				// Reacquire parent lock and verify parent hasn't changed
 				parent.mu.Lock()
-				if atomic.LoadUint64(&parent.dir.generation) == parentGen {
-					// Parent hasn't changed, safe to mark gap
+				if atomic.LoadUint64(&parent.dir.generation) == parentGen &&
+					atomic.LoadUint64(&inode.dir.generation) == inodeGen+1 {
+					// Both parent and inode are in expected state, safe to mark gap
 					parent.dir.markGapLoaded(NilStr(startWith), calculatedNextStartAfter)
 					nextStartAfter = ""
 				} else {
-					// Parent changed during seal, return partial progress
+					// Parent or inode changed during seal, return partial progress
 					nextStartAfter = calculatedNextStartAfter
 				}
 				parent.mu.Unlock()
 			} else {
 				// inode == parent, we already hold the lock so seal directly
+				gen := atomic.LoadUint64(&parent.dir.generation)
 				parent.sealDir()
-				// Mark gap as loaded after sealing while still holding lock
-				parent.dir.markGapLoaded(NilStr(startWith), calculatedNextStartAfter)
+				// Verify seal incremented generation by exactly 1
+				if atomic.LoadUint64(&parent.dir.generation) == gen+1 {
+					// Generation incremented correctly, safe to mark gap
+					parent.dir.markGapLoaded(NilStr(startWith), calculatedNextStartAfter)
+					nextStartAfter = ""
+				} else {
+					// Generation didn't increment as expected, return partial progress
+					nextStartAfter = calculatedNextStartAfter
+				}
 				parent.mu.Unlock()
-				// Gap marked successfully, signal completion
-				nextStartAfter = ""
 			}
 		} else {
 			// lock=false: Caller holds parent.mu, so we can't do unlock/relock.
 			// This is used by Rename which already handles lock ordering properly.
 			if inode != parent {
+				inodeGen := atomic.LoadUint64(&inode.dir.generation)
 				inode.mu.Lock()
-				inode.sealDir()
+				// Verify inode hasn't been modified before sealing
+				if atomic.LoadUint64(&inode.dir.generation) == inodeGen {
+					inode.sealDir()
+				}
 				inode.mu.Unlock()
 			} else {
 				// inode == parent, caller holds parent.mu so we can seal directly
+				gen := atomic.LoadUint64(&inode.dir.generation)
 				inode.sealDir()
+				// Verify seal incremented generation correctly
+				if atomic.LoadUint64(&inode.dir.generation) != gen+1 {
+					// Seal failed, return partial progress
+					nextStartAfter = calculatedNextStartAfter
+					return
+				}
 			}
 			// Mark gap as loaded after sealing
 			parent.dir.markGapLoaded(NilStr(startWith), calculatedNextStartAfter)
