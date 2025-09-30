@@ -342,53 +342,42 @@ func (parent *Inode) listObjectsSlurp(inode *Inode, startAfter string, sealEnd b
 	}
 
 	if seal {
-		// Calculate nextStartAfter first before marking gap
+		// Calculate nextStartAfter first
 		var calculatedNextStartAfter string
 		if obj != nil {
 			calculatedNextStartAfter = *obj.Key
-		}
-
-		// Remember this range as already loaded before we release locks
-		parent.dir.markGapLoaded(NilStr(startWith), calculatedNextStartAfter)
-
-		var inodeGen uint64
-
-		// Capture generation right before unlocking to minimize staleness window
-		if inode != parent {
-			inodeGen = atomic.LoadUint64(&inode.dir.generation)
-		} else {
-			inodeGen = atomic.LoadUint64(&parent.dir.generation)
 		}
 
 		// When lock=true, we need to release parent lock before sealing inode
 		// to avoid lock ordering issues. When lock=false, caller already holds
 		// the lock and we must NOT release it (they'll handle lock ordering).
 		if lock {
-			parent.mu.Unlock()
-
 			if inode != parent {
+				// Capture generation right before unlocking parent
+				inodeGen := atomic.LoadUint64(&parent.dir.generation)
+				parent.mu.Unlock()
+
 				inode.mu.Lock()
-				// Check if generation changed while we didn't hold the lock
-				if atomic.LoadUint64(&inode.dir.generation) == inodeGen {
-					inode.sealDir()
-				}
+				inode.sealDir()
 				inode.mu.Unlock()
-			} else {
-				// inode == parent, we need to reacquire the lock after unlocking
+
+				// Reacquire parent lock and verify its generation
 				parent.mu.Lock()
-
-				// Check generation after reacquiring lock
 				if atomic.LoadUint64(&parent.dir.generation) == inodeGen {
-					parent.sealDir()
+					// Parent hasn't changed, mark gap as loaded
+					parent.dir.markGapLoaded(NilStr(startWith), calculatedNextStartAfter)
 				}
-
-				// Ensure parent lock is released before return in seal path
+				parent.mu.Unlock()
+			} else {
+				// inode == parent, we already hold the lock so seal directly
+				parent.sealDir()
+				// Mark gap as loaded after sealing
+				parent.dir.markGapLoaded(NilStr(startWith), calculatedNextStartAfter)
 				parent.mu.Unlock()
 			}
 		} else {
 			// lock=false: Caller holds parent.mu, so we can't do unlock/relock.
 			// This is used by Rename which already handles lock ordering properly.
-			// Just seal the inode directly.
 			if inode != parent {
 				inode.mu.Lock()
 				inode.sealDir()
@@ -397,6 +386,8 @@ func (parent *Inode) listObjectsSlurp(inode *Inode, startAfter string, sealEnd b
 				// inode == parent, caller holds parent.mu so we can seal directly
 				inode.sealDir()
 			}
+			// Mark gap as loaded after sealing
+			parent.dir.markGapLoaded(NilStr(startWith), calculatedNextStartAfter)
 		}
 
 		nextStartAfter = ""
