@@ -367,6 +367,11 @@ func (parent *Inode) listObjectsSlurp(inode *Inode, startAfter string, sealEnd b
 				if atomic.LoadUint64(&parent.dir.generation) == parentGen {
 					// Parent hasn't changed, safe to mark gap as loaded
 					parent.dir.markGapLoaded(NilStr(startWith), calculatedNextStartAfter)
+					// Gap marked successfully, signal completion
+					nextStartAfter = ""
+				} else {
+					// Parent changed, gap not marked, return partial progress
+					nextStartAfter = calculatedNextStartAfter
 				}
 				parent.mu.Unlock()
 			} else {
@@ -375,6 +380,8 @@ func (parent *Inode) listObjectsSlurp(inode *Inode, startAfter string, sealEnd b
 				// Mark gap as loaded after sealing while still holding lock
 				parent.dir.markGapLoaded(NilStr(startWith), calculatedNextStartAfter)
 				parent.mu.Unlock()
+				// Gap marked successfully, signal completion
+				nextStartAfter = ""
 			}
 		} else {
 			// lock=false: Caller holds parent.mu, so we can't do unlock/relock.
@@ -389,9 +396,10 @@ func (parent *Inode) listObjectsSlurp(inode *Inode, startAfter string, sealEnd b
 			}
 			// Mark gap as loaded after sealing
 			parent.dir.markGapLoaded(NilStr(startWith), calculatedNextStartAfter)
+			// Gap marked successfully, signal completion
+			nextStartAfter = ""
 		}
 
-		nextStartAfter = ""
 		return
 	} else {
 		if obj != nil {
