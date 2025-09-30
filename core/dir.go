@@ -357,20 +357,27 @@ func (parent *Inode) listObjectsSlurp(inode *Inode, startAfter string, sealEnd b
 				parentGen := atomic.LoadUint64(&parent.dir.generation)
 				parent.mu.Unlock()
 
-				// Seal the inode with its own lock
-				inode.mu.Lock()
-				inode.sealDir()
-				inode.mu.Unlock()
-
 				// Reacquire parent lock and verify parent hasn't changed
 				parent.mu.Lock()
 				if atomic.LoadUint64(&parent.dir.generation) == parentGen {
-					// Parent hasn't changed, safe to mark gap as loaded
-					parent.dir.markGapLoaded(NilStr(startWith), calculatedNextStartAfter)
-					// Gap marked successfully, signal completion
-					nextStartAfter = ""
+					// Parent hasn't changed, safe to seal inode and mark gap
+					parent.mu.Unlock()
+
+					inode.mu.Lock()
+					inode.sealDir()
+					inode.mu.Unlock()
+
+					parent.mu.Lock()
+					// Verify parent still hasn't changed after sealing
+					if atomic.LoadUint64(&parent.dir.generation) == parentGen {
+						parent.dir.markGapLoaded(NilStr(startWith), calculatedNextStartAfter)
+						nextStartAfter = ""
+					} else {
+						// Parent changed during seal, return partial progress
+						nextStartAfter = calculatedNextStartAfter
+					}
 				} else {
-					// Parent changed, gap not marked, return partial progress
+					// Parent changed, skip sealing and gap marking, return partial progress
 					nextStartAfter = calculatedNextStartAfter
 				}
 				parent.mu.Unlock()
