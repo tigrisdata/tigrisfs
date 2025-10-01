@@ -425,23 +425,27 @@ func (parent *Inode) listObjectsSlurp(inode *Inode, startAfter string, sealEnd b
 			sealSucceeded = parent.sealDirWithValidation()
 			alreadySealed = !sealSucceeded && parent.dir.listDone
 
-			// Special case: if already sealed but got items, update mtime
+			// Special case: if already sealed but got items, update mtime (lock=true only)
 			if alreadySealed && hasItems && lock {
 				parent.updateDirectoryMtime()
 			}
 
-			// Mark gap if sealed successfully
+			// Decide whether to mark gap based on seal outcome and lock parameter
 			if sealSucceeded {
+				// Successfully sealed directory - mark gap as loaded
 				parent.dir.markGapLoaded(NilStr(startWith), calculatedNextStartAfter)
 				nextStartAfter = ""
-			} else if lock && alreadySealed && hasItems {
-				// Already sealed, got new items, updated mtime - don't mark gap
+			} else if lock {
+				// lock=true path: don't mark gap if already sealed
+				// Return partial progress to indicate directory state may be stale
 				nextStartAfter = calculatedNextStartAfter
-			} else if !lock && alreadySealed {
+			} else if alreadySealed {
 				// lock=false path: mark gap even if already sealed
+				// Caller (e.g., Rename) manages parent consistency
 				parent.dir.markGapLoaded(NilStr(startWith), calculatedNextStartAfter)
 				nextStartAfter = ""
 			} else {
+				// lock=false, seal failed
 				nextStartAfter = calculatedNextStartAfter
 			}
 
