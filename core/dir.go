@@ -392,6 +392,11 @@ func (parent *Inode) listObjectsSlurp(inode *Inode, startAfter string, sealEnd b
 				inode.mu.Lock()
 				sealSucceeded = inode.sealDirWithValidation()
 				alreadySealed = !sealSucceeded && inode.dir.listDone
+
+				// Special case: if already sealed but got items, update mtime
+				if alreadySealed && hasItems {
+					inode.updateDirectoryMtime()
+				}
 				inode.mu.Unlock()
 
 				// Reacquire parent lock and validate generation
@@ -410,6 +415,11 @@ func (parent *Inode) listObjectsSlurp(inode *Inode, startAfter string, sealEnd b
 				inode.mu.Lock()
 				sealSucceeded = inode.sealDirWithValidation()
 				alreadySealed = !sealSucceeded && inode.dir.listDone
+
+				// Special case: if already sealed but got items, update mtime
+				if alreadySealed && hasItems {
+					inode.updateDirectoryMtime()
+				}
 				inode.mu.Unlock()
 
 				// Validate parent generation before marking gap
