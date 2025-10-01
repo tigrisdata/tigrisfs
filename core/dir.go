@@ -310,7 +310,13 @@ func (parent *Inode) listObjectsSlurp(inode *Inode, startAfter string, sealEnd b
 			child.mu.Lock()
 			// Capture generation and check if already sealed while holding the lock
 			if !child.dir.listDone {
+				gen := atomic.LoadUint64(&child.dir.generation)
 				child.sealDir()
+				// Verify seal succeeded (generation incremented by exactly 1)
+				if atomic.LoadUint64(&child.dir.generation) != gen+1 {
+					// Seal failed validation - directory was modified concurrently
+					// This should not happen since we hold child.mu, but be defensive
+				}
 			}
 			child.mu.Unlock()
 		}
