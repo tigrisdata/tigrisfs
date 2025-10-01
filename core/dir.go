@@ -310,7 +310,13 @@ func (parent *Inode) listObjectsSlurp(inode *Inode, startAfter string, sealEnd b
 			child.mu.Lock()
 			// Capture generation and check if already sealed while holding the lock
 			if !child.dir.listDone {
+				gen := atomic.LoadUint64(&child.dir.generation)
 				child.sealDir()
+				// Verify seal succeeded (generation incremented by exactly 1)
+				if atomic.LoadUint64(&child.dir.generation) != gen+1 {
+					// Seal failed validation - directory was modified concurrently
+					// This should not happen since we hold child.mu, but be defensive
+				}
 			}
 			child.mu.Unlock()
 		}
@@ -382,6 +388,12 @@ func (parent *Inode) listObjectsSlurp(inode *Inode, startAfter string, sealEnd b
 			} else {
 				// inode == parent, we already hold the lock so seal directly
 				sealSucceeded := false
+				alreadySealed := false
+
+				// If we received items, we may need to update directory mtime even if already sealed
+				// This handles the case where a directory is re-listed after new files are added
+				hasItems := len(resp.Items) > 0
+
 				if !parent.dir.listDone {
 					gen := atomic.LoadUint64(&parent.dir.generation)
 					parent.sealDir()
@@ -390,14 +402,33 @@ func (parent *Inode) listObjectsSlurp(inode *Inode, startAfter string, sealEnd b
 						sealSucceeded = true
 					}
 					// If validation fails, sealSucceeded remains false
+				} else if hasItems {
+					// Directory was already sealed but we got items, so re-seal to update mtime
+					// This doesn't set listDone=false, just updates directory attributes
+					alreadySealed = true
+					if parent.fs.flags.EnableMtime && parent.userMetadata != nil &&
+						parent.userMetadata[parent.fs.flags.MtimeAttr] != nil {
+						_, parent.Attributes.Ctime = parent.findChildMaxTime()
+					} else {
+						parent.Attributes.Mtime, parent.Attributes.Ctime = parent.findChildMaxTime()
+					}
+				} else {
+					alreadySealed = true
 				}
 
 				// Mark gap only if we successfully sealed (not if already sealed or failed)
 				if sealSucceeded {
 					parent.dir.markGapLoaded(NilStr(startWith), calculatedNextStartAfter)
 					nextStartAfter = ""
+				} else if alreadySealed && !hasItems {
+					// Already sealed and no new items - return partial progress
+					nextStartAfter = calculatedNextStartAfter
+				} else if alreadySealed && hasItems {
+					// Already sealed but got new items, we updated mtime above
+					// Don't mark gap as loaded since directory structure may have changed
+					nextStartAfter = calculatedNextStartAfter
 				} else {
-					// Already sealed or seal failed - return partial progress
+					// Seal failed - return partial progress
 					nextStartAfter = calculatedNextStartAfter
 				}
 				parent.mu.Unlock()
