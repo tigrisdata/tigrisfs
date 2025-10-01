@@ -243,6 +243,68 @@ func RetryListBlobs(flags *cfg.FlagStorage, cloud StorageBackend, req *ListBlobs
 	return
 }
 
+// sealDirWithValidation seals a directory and validates that the generation incremented correctly.
+// Returns true if seal succeeded and generation validation passed.
+// LOCKS_REQUIRED(inode.mu)
+func (inode *Inode) sealDirWithValidation() bool {
+	if inode.dir.listDone {
+		return false
+	}
+	gen := atomic.LoadUint64(&inode.dir.generation)
+	inode.sealDir()
+	// Verify seal incremented generation by exactly 1
+	return atomic.LoadUint64(&inode.dir.generation) == gen+1
+}
+
+// updateDirectoryMtime updates a directory's mtime from its children without sealing.
+// Used when a directory is re-listed and already sealed but has new/updated children.
+// LOCKS_REQUIRED(inode.mu)
+func (inode *Inode) updateDirectoryMtime() {
+	if inode.fs.flags.EnableMtime && inode.userMetadata != nil &&
+		inode.userMetadata[inode.fs.flags.MtimeAttr] != nil {
+		_, inode.Attributes.Ctime = inode.findChildMaxTime()
+	} else {
+		inode.Attributes.Mtime, inode.Attributes.Ctime = inode.findChildMaxTime()
+	}
+}
+
+// sealChildDirectories seals child directories found during listing.
+// Must release parent lock before sealing to avoid deadlocks.
+// LOCKS_REQUIRED(parent.mu) on entry
+// LOCKS_REQUIRED(parent.mu) on exit
+func (parent *Inode) sealChildDirectories(dirs map[*Inode]bool, resp *ListBlobsOutput, inode *Inode) {
+	// Collect directories that should be sealed
+	toSeal := make([]*Inode, 0, len(dirs))
+	for d, sealed := range dirs {
+		// It's not safe to seal upper directories, we're not slurping at their start
+		if (sealed || !resp.IsTruncated) && !d.isParentOf(inode) {
+			toSeal = append(toSeal, d)
+		}
+	}
+
+	// Release parent lock before sealing children to avoid lock ordering issues
+	parent.mu.Unlock()
+
+	// Seal directories without holding parent lock
+	// Capture generation under each child's lock to avoid races
+	for _, child := range toSeal {
+		child.mu.Lock()
+		if !child.dir.listDone {
+			gen := atomic.LoadUint64(&child.dir.generation)
+			child.sealDir()
+			// Verify seal succeeded (generation incremented by exactly 1)
+			if atomic.LoadUint64(&child.dir.generation) != gen+1 {
+				// Seal failed validation - directory was modified concurrently
+				// This should not happen since we hold child.mu, but be defensive
+			}
+		}
+		child.mu.Unlock()
+	}
+
+	// Reacquire parent lock
+	parent.mu.Lock()
+}
+
 func (parent *Inode) listObjectsSlurp(inode *Inode, startAfter string, sealEnd bool, lock bool) (nextStartAfter string, err error) {
 	// Prefix is for insertSubTree
 	cloud, prefix := parent.cloud()
@@ -287,45 +349,11 @@ func (parent *Inode) listObjectsSlurp(inode *Inode, startAfter string, sealEnd b
 		}
 	}
 
-	// Build list of directories to seal
-	// We must release parent.mu before sealing to avoid deadlock
-	// However, when lock=false, caller is responsible for lock ordering,
-	// so we skip sealing children and must NOT unlock/relock parent.mu.
+	// Seal child directories found during listing
+	// When lock=false, caller is responsible for lock ordering, so skip child sealing
 	if lock {
-		// Collect directories that should be sealed
-		toSeal := make([]*Inode, 0, len(dirs))
-		for d, sealed := range dirs {
-			// It's not safe to seal upper directories, we're not slurping at their start
-			if (sealed || !resp.IsTruncated) && !d.isParentOf(inode) {
-				toSeal = append(toSeal, d)
-			}
-		}
-
-		// Release parent lock before sealing children to avoid lock ordering issues
-		parent.mu.Unlock()
-
-		// Seal directories without holding parent lock
-		// Capture generation under each child's lock to avoid races
-		for _, child := range toSeal {
-			child.mu.Lock()
-			// Capture generation and check if already sealed while holding the lock
-			if !child.dir.listDone {
-				gen := atomic.LoadUint64(&child.dir.generation)
-				child.sealDir()
-				// Verify seal succeeded (generation incremented by exactly 1)
-				if atomic.LoadUint64(&child.dir.generation) != gen+1 {
-					// Seal failed validation - directory was modified concurrently
-					// This should not happen since we hold child.mu, but be defensive
-				}
-			}
-			child.mu.Unlock()
-		}
-
-		// Reacquire parent lock
-		parent.mu.Lock()
+		parent.sealChildDirectories(dirs, resp, inode)
 	}
-	// When lock=false, caller holds parent.mu and expects us to keep it locked
-	// throughout. We skip child sealing and must not unlock/relock here.
 
 	var obj *BlobItemOutput
 	if len(resp.Items) > 0 {
@@ -350,154 +378,75 @@ func (parent *Inode) listObjectsSlurp(inode *Inode, startAfter string, sealEnd b
 			calculatedNextStartAfter = *obj.Key
 		}
 
-		// When lock=true, we need to release parent lock before sealing inode
-		// to avoid lock ordering issues. When lock=false, caller already holds
-		// the lock and we must NOT release it (they'll handle lock ordering).
-		if lock {
-			if inode != parent {
-				// Capture parent generation before unlocking to validate later
+		// Seal target inode with appropriate locking strategy
+		var sealSucceeded, alreadySealed bool
+		hasItems := len(resp.Items) > 0
+
+		if inode != parent {
+			// Different inode from parent: need to seal child while managing locks properly
+			if lock {
+				// Capture parent generation, then unlock to seal child
 				parentGen := atomic.LoadUint64(&parent.dir.generation)
 				parent.mu.Unlock()
 
-				// Attempt to seal the inode without holding parent lock
 				inode.mu.Lock()
-				sealSucceeded := false
-				if !inode.dir.listDone {
-					// Capture generation right before sealing (under inode.mu)
-					inodeGen := atomic.LoadUint64(&inode.dir.generation)
-					inode.sealDir()
-					// Verify seal incremented generation by exactly 1
-					if atomic.LoadUint64(&inode.dir.generation) == inodeGen+1 {
-						sealSucceeded = true
-					}
-					// If validation fails, sealSucceeded remains false
-				}
+				sealSucceeded = inode.sealDirWithValidation()
+				alreadySealed = !sealSucceeded && inode.dir.listDone
 				inode.mu.Unlock()
 
-				// Reacquire parent lock and decide whether to mark gap
+				// Reacquire parent lock and validate generation
 				parent.mu.Lock()
 				if sealSucceeded && atomic.LoadUint64(&parent.dir.generation) == parentGen {
-					// Parent unchanged and we successfully sealed, safe to mark gap
 					parent.dir.markGapLoaded(NilStr(startWith), calculatedNextStartAfter)
 					nextStartAfter = ""
 				} else {
-					// Parent changed, inode already sealed, or seal failed - return partial
 					nextStartAfter = calculatedNextStartAfter
 				}
 				parent.mu.Unlock()
 			} else {
-				// inode == parent, we already hold the lock so seal directly
-				sealSucceeded := false
-				alreadySealed := false
-
-				// If we received items, we may need to update directory mtime even if already sealed
-				// This handles the case where a directory is re-listed after new files are added
-				hasItems := len(resp.Items) > 0
-
-				if !parent.dir.listDone {
-					gen := atomic.LoadUint64(&parent.dir.generation)
-					parent.sealDir()
-					// Verify seal incremented generation by exactly 1
-					if atomic.LoadUint64(&parent.dir.generation) == gen+1 {
-						sealSucceeded = true
-					}
-					// If validation fails, sealSucceeded remains false
-				} else if hasItems {
-					// Directory was already sealed but we got items, so re-seal to update mtime
-					// This doesn't set listDone=false, just updates directory attributes
-					alreadySealed = true
-					if parent.fs.flags.EnableMtime && parent.userMetadata != nil &&
-						parent.userMetadata[parent.fs.flags.MtimeAttr] != nil {
-						_, parent.Attributes.Ctime = parent.findChildMaxTime()
-					} else {
-						parent.Attributes.Mtime, parent.Attributes.Ctime = parent.findChildMaxTime()
-					}
-				} else {
-					alreadySealed = true
-				}
-
-				// Mark gap only if we successfully sealed (not if already sealed or failed)
-				if sealSucceeded {
-					parent.dir.markGapLoaded(NilStr(startWith), calculatedNextStartAfter)
-					nextStartAfter = ""
-				} else if alreadySealed && !hasItems {
-					// Already sealed and no new items - return partial progress
-					nextStartAfter = calculatedNextStartAfter
-				} else if alreadySealed && hasItems {
-					// Already sealed but got new items, we updated mtime above
-					// Don't mark gap as loaded since directory structure may have changed
-					nextStartAfter = calculatedNextStartAfter
-				} else {
-					// Seal failed - return partial progress
-					nextStartAfter = calculatedNextStartAfter
-				}
-				parent.mu.Unlock()
-			}
-		} else {
-			// lock=false: Caller holds parent.mu, so we can't do unlock/relock.
-			// This is used by Rename which already handles lock ordering properly.
-			if inode != parent {
-				// Capture parent generation before sealing inode to validate later
+				// lock=false: Caller holds parent.mu throughout
 				parentGen := atomic.LoadUint64(&parent.dir.generation)
 
 				inode.mu.Lock()
-				sealSucceeded := false
-				alreadySealed := false
-				if !inode.dir.listDone {
-					// Capture generation right before sealing (under inode.mu)
-					inodeGen := atomic.LoadUint64(&inode.dir.generation)
-					inode.sealDir()
-					// Verify seal succeeded
-					if atomic.LoadUint64(&inode.dir.generation) == inodeGen+1 {
-						sealSucceeded = true
-					}
-					// If validation fails, sealSucceeded remains false
-				} else {
-					alreadySealed = true
-				}
+				sealSucceeded = inode.sealDirWithValidation()
+				alreadySealed = !sealSucceeded && inode.dir.listDone
 				inode.mu.Unlock()
 
-				// Validate parent generation hasn't changed during inode sealing
-				// Even though caller holds parent.mu, parent state could have changed
-				// between when they acquired the lock and now
-				if atomic.LoadUint64(&parent.dir.generation) == parentGen {
-					// Parent unchanged - safe to mark gap if we sealed successfully or already done
-					if sealSucceeded || alreadySealed {
-						parent.dir.markGapLoaded(NilStr(startWith), calculatedNextStartAfter)
-						nextStartAfter = ""
-					} else {
-						// Seal failed unexpectedly - return partial progress
-						nextStartAfter = calculatedNextStartAfter
-					}
-				} else {
-					// Parent generation changed - return partial progress
-					nextStartAfter = calculatedNextStartAfter
-				}
-			} else {
-				// inode == parent, caller holds parent.mu so we can seal directly
-				sealSucceeded := false
-				alreadySealed := false
-				if !inode.dir.listDone {
-					gen := atomic.LoadUint64(&inode.dir.generation)
-					inode.sealDir()
-					// Verify seal incremented generation correctly
-					if atomic.LoadUint64(&inode.dir.generation) == gen+1 {
-						sealSucceeded = true
-					}
-					// If validation fails, sealSucceeded remains false
-				} else {
-					alreadySealed = true
-				}
-
-				// For lock=false, caller (Rename) manages parent consistency
-				// Mark gap if we sealed successfully OR if already done
-				if sealSucceeded || alreadySealed {
+				// Validate parent generation before marking gap
+				if atomic.LoadUint64(&parent.dir.generation) == parentGen && (sealSucceeded || alreadySealed) {
 					parent.dir.markGapLoaded(NilStr(startWith), calculatedNextStartAfter)
 					nextStartAfter = ""
 				} else {
-					// Seal failed unexpectedly - return partial progress
 					nextStartAfter = calculatedNextStartAfter
 				}
+			}
+		} else {
+			// inode == parent: seal in place, already holding lock
+			sealSucceeded = parent.sealDirWithValidation()
+			alreadySealed = !sealSucceeded && parent.dir.listDone
+
+			// Special case: if already sealed but got items, update mtime
+			if alreadySealed && hasItems && lock {
+				parent.updateDirectoryMtime()
+			}
+
+			// Mark gap if sealed successfully
+			if sealSucceeded {
+				parent.dir.markGapLoaded(NilStr(startWith), calculatedNextStartAfter)
+				nextStartAfter = ""
+			} else if lock && alreadySealed && hasItems {
+				// Already sealed, got new items, updated mtime - don't mark gap
+				nextStartAfter = calculatedNextStartAfter
+			} else if !lock && alreadySealed {
+				// lock=false path: mark gap even if already sealed
+				parent.dir.markGapLoaded(NilStr(startWith), calculatedNextStartAfter)
+				nextStartAfter = ""
+			} else {
+				nextStartAfter = calculatedNextStartAfter
+			}
+
+			if lock {
+				parent.mu.Unlock()
 			}
 		}
 
