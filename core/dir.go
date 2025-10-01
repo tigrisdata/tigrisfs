@@ -296,6 +296,7 @@ func (parent *Inode) sealChildDirectories(dirs map[*Inode]bool, resp *ListBlobsO
 			if atomic.LoadUint64(&child.dir.generation) != gen+1 {
 				// Seal failed validation - directory was modified concurrently
 				// This should not happen since we hold child.mu, but be defensive
+				fuseLog.Debugf("Seal failed validation for directory %v: generation=%v expected=%v", child.FullName(), atomic.LoadUint64(&child.dir.generation), gen+1)
 			}
 		}
 		child.mu.Unlock()
@@ -435,8 +436,8 @@ func (parent *Inode) listObjectsSlurp(inode *Inode, startAfter string, sealEnd b
 			sealSucceeded = parent.sealDirWithValidation()
 			alreadySealed = !sealSucceeded && parent.dir.listDone
 
-			// Special case: if already sealed but got items, update mtime (lock=true only)
-			if alreadySealed && hasItems && lock {
+			// Special case: if already sealed but got items, update mtime
+			if alreadySealed && hasItems {
 				parent.updateDirectoryMtime()
 			}
 
