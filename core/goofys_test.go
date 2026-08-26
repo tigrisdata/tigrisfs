@@ -1194,6 +1194,81 @@ func (s *GoofysTest) TestBackendListPrefix(t *C) {
 	t.Assert(*res.Items[0].Key, Equals, "test_list_prefix/dir2/dir3/file4")
 }
 
+// Regression test for the Rename self-deadlock: renaming a directory onto an
+// existing EMPTY directory whose listing has expired made isEmptyDir() reload
+// the listing while Rename held the parent locks. With slurp enabled
+// (StatCacheTTL != 0 — the production default), that reload starts at the ROOT
+// (slurpOnce walks up) and insertSubTree re-locks every directory on the path
+// back down — including the very parent Rename already holds. Go mutexes are
+// not reentrant, so the daemon deadlocked and every later FUSE op queued behind
+// the held locks forever.
+//
+// TestRenameDir cannot catch this: it sets StatCacheTTL = 0, which disables the
+// slurp path entirely (loadListing's useSlurp condition). Reproducing it needs
+// three things together, all of which the live npm-install workload produced
+// via churn and all of which this test sets up explicitly:
+//  1. slurp enabled (StatCacheTTL != 0),
+//  2. a parent BELOW the root, so the root-down insertSubTree walk crosses it,
+//  3. the rename target's directory cache EXPIRED, so isEmptyDir re-lists
+//     instead of answering from cache (DirTime = zero == always expired — the
+//     same cold state a generation reset leaves behind).
+//
+// Without the fix this deadlocks (caught by the timeout); with the fix the
+// emptiness check runs lock-free before Rename takes its locks.
+func (s *GoofysTest) TestRenameDirColdTarget(t *C) {
+	// Slurp ON — the production default that TestRenameDir turns off.
+	s.fs.flags.StatCacheTTL = time.Minute
+
+	// Non-empty source dir + empty target dir under a NON-root parent, plus a
+	// non-empty sibling whose key sorts AFTER the target. The slurp lists from
+	// StartAfter=<target key>, so it re-descends into (and re-locks) the held
+	// parent only when a later-sorting entry under it exists — guaranteed in a
+	// real node_modules, arranged here with "a_"/"z_" names.
+	for _, key := range []string{"dir2/a_src/f1", "dir2/z_sib/f2"} {
+		_, err := s.cloud.PutBlob(&PutBlobInput{
+			Key: key, Body: bytes.NewReader([]byte("x")), Size: PUInt64(1),
+		})
+		t.Assert(err, IsNil)
+	}
+	_, err := s.cloud.PutBlob(&PutBlobInput{
+		Key: "dir2/a_tgt/", Body: bytes.NewReader([]byte{}), Size: PUInt64(0),
+	})
+	t.Assert(err, IsNil)
+
+	parent, err := s.fs.LookupPath("dir2")
+	t.Assert(err, IsNil)
+	_, err = s.fs.LookupPath("dir2/a_src")
+	t.Assert(err, IsNil)
+	tgt, err := s.fs.LookupPath("dir2/a_tgt")
+	t.Assert(err, IsNil)
+
+	// Expire the target's directory cache so isEmptyDir re-lists it from the
+	// cloud (the cold state the live churn kept re-creating). A zero DirTime is
+	// always expired; clearing listMarker/listDone forces the useSlurp path.
+	tgt.mu.Lock()
+	tgt.dir.DirTime = time.Time{}
+	tgt.dir.listMarker = ""
+	tgt.dir.listDone = false
+	tgt.mu.Unlock()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- parent.Rename("a_src", parent, "a_tgt")
+	}()
+	select {
+	case err = <-done:
+		// The target is empty, so the rename must succeed.
+		t.Assert(err, IsNil)
+	case <-time.After(30 * time.Second):
+		t.Fatalf("Rename deadlocked in the destination emptiness check (listing reload under held locks)")
+	}
+
+	_, err = s.fs.LookupPath("dir2/a_tgt/f1")
+	t.Assert(err, IsNil)
+	_, err = s.fs.LookupPath("dir2/a_src")
+	t.Assert(err, Equals, syscall.ENOENT)
+}
+
 func (s *GoofysTest) TestRenameDir(t *C) {
 	s.fs.flags.StatCacheTTL = 0
 

@@ -148,8 +148,8 @@ MISC OPTIONS:
 		},
 
 		cli.BoolFlag{
-			Name:  "no-tigris-prefetch",
-			Usage: "Disable Tigris prefetch on list (default: on)",
+			Name:  "tigris-prefetch",
+			Usage: "Enable Tigris prefetch on list (default: off)",
 		},
 
 		cli.BoolFlag{
@@ -955,7 +955,7 @@ func PopulateFlags(c *cli.Context) (ret *FlagStorage) {
 		ClusterMode:           c.Bool("cluster"),
 		ClusterGrpcReflection: c.Bool("grpc-reflection"),
 
-		TigrisPrefetch:    !c.Bool("no-tigris-prefetch"),
+		TigrisPrefetch:    c.Bool("tigris-prefetch"),
 		TigrisListContent: c.Bool("tigris-list-content"),
 	}
 
@@ -1138,7 +1138,7 @@ func DefaultFlags() *FlagStorage {
 			{PartSize: 25 * 1024 * 1024, PartCount: 1000},
 			{PartSize: 125 * 1024 * 1024, PartCount: 8000},
 		},
-		TigrisPrefetch:    true,
+		TigrisPrefetch:    false,
 		TigrisListContent: true,
 	}
 }

@@ -958,7 +958,10 @@ func (fs *Goofys) RefreshInodeCache(inode *Inode) error {
 		}
 		return mappedErr
 	}
-	_, err := parent.recheckInode(inode, name)
+	// Use recheckInodeByName to ensure we work with the current child instance
+	// This handles cases where the inode passed to RefreshInodeCache might be
+	// a stale reference from fs.inodes while parent.dir.Children has a newer instance
+	_, err := parent.recheckInodeByName(name)
 	mappedErr = mapAwsError(err)
 	if mappedErr == syscall.ENOENT {
 		notifications = append(notifications, &fuseops.NotifyDelete{

@@ -430,6 +430,7 @@ func (fs *ClusterFs) readDir(handleId fuseops.HandleID, offset fuseops.DirOffset
 		dh.lastExternalOffset = 0
 		dh.lastInternalOffset = 0
 		dh.lastName = ""
+		dh.generation = atomic.LoadUint64(&dh.inode.dir.generation)
 	}
 
 	for {
