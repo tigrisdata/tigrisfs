@@ -26,6 +26,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -40,7 +41,7 @@ import (
 
 func (s *GoofysTest) mountCommon(t *C, mountPoint string, sameProc bool) {
 	err := os.MkdirAll(mountPoint, 0o700)
-	if err == syscall.EEXIST {
+	if err != nil && (err == syscall.EEXIST || strings.Contains(err.Error(), "file exists")) {
 		err = nil
 	}
 	t.Assert(err, IsNil)

@@ -57,6 +57,10 @@ if [ "$PROXY_BIN" != "" ]; then
     $PROXY_BIN &
     PROXY_PID=$!
     export EMULATOR=1
+    until curl -s "$ENDPOINT" > /dev/null; do
+        echo "Waiting for proxy up..."
+        sleep 1
+    done
 elif [ "$TIMEOUT" == "10m" ]; then
     # higher timeout for testing to real cloud
     TIMEOUT=45m

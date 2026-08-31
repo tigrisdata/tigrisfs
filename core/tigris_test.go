@@ -35,7 +35,7 @@ var (
 	localTigris bool
 )
 
-func tigrisDetected(flags *cfg.FlagStorage) (bool, bool) {
+func testTigrisDetected(flags *cfg.FlagStorage) (bool, bool) {
 	if triedDetect {
 		return detected, localTigris
 	}
@@ -52,20 +52,24 @@ func tigrisDetected(flags *cfg.FlagStorage) (bool, bool) {
 		return false, local
 	}
 
-	triedDetect = true
 	localTigris = local
-	detected = r.StatusCode == http.StatusOK && strings.Contains(r.Header.Get("Server"), "Tigris")
+	detected = strings.HasSuffix(endpoint, ".tigris.dev") || strings.HasSuffix(endpoint, ".storage.dev")
+
+	triedDetect = true
+	if !detected {
+		detected = r.StatusCode == http.StatusOK && strings.Contains(r.Header.Get("Server"), "Tigris")
+	}
 
 	return detected, local
 }
 
-func LocalTigrisDetected(flags *cfg.FlagStorage) bool {
-	t, local := tigrisDetected(flags)
+func LocalTigrisDetectedForTests(flags *cfg.FlagStorage) bool {
+	t, local := testTigrisDetected(flags)
 	return t && local
 }
 
-func TigrisDetected(flags *cfg.FlagStorage) bool {
-	t, _ := tigrisDetected(flags)
+func TigrisDetectedForTests(flags *cfg.FlagStorage) bool {
+	t, _ := testTigrisDetected(flags)
 	return t
 }
 
@@ -77,7 +81,7 @@ func TestListIncludeMetadataAndContent(t *testing.T) {
 	flags.Backend = &conf
 	flags.TigrisListContent = true
 
-	if !TigrisDetected(flags) {
+	if !TigrisDetectedForTests(flags) {
 		t.Skip("Tigris not detected")
 	}
 
