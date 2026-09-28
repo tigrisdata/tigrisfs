@@ -241,3 +241,30 @@ func (s *BufferListTest) TestRA(t *C) {
 	split := splitRA(merged, 20*1024*1024)
 	t.Assert(split, DeepEquals, []Range{{6841958400, 6862929920}, {6862929920, 6868172800}})
 }
+
+// An inverted range used to take the whole daemon down: End-Start underflows
+// the unsigned subtraction into a huge length, which takes the split branch,
+// resets the result to empty, then indexes res[len(res)-1] on it. loadFromServer
+// produced one by clamping End to knownSize without checking Start, which is
+// guarded there now; this keeps splitRA itself from panicking regardless.
+func (s *BufferListTest) TestSplitRAInvertedRange(t *C) {
+	// The shape from the crash: a single range whose End was clamped below Start.
+	t.Assert(splitRA([]Range{{0x1900000, 0x1000000}}, 20*1024*1024), HasLen, 0)
+
+	// An inverted range is dropped without disturbing its valid neighbours.
+	t.Assert(splitRA([]Range{
+		{0, 1024},
+		{0x1900000, 0x1000000},
+		{2048, 4096},
+	}, 20*1024*1024), DeepEquals, []Range{{0, 1024}, {2048, 4096}})
+
+	// Empty ranges go the same way, and valid input is untouched.
+	t.Assert(splitRA([]Range{{4096, 4096}}, 20*1024*1024), HasLen, 0)
+	t.Assert(splitRA([]Range{{0, 1024}}, 20*1024*1024), DeepEquals, []Range{{0, 1024}})
+
+	// Splitting still works when an inverted range precedes an oversized one.
+	t.Assert(splitRA([]Range{
+		{0x1900000, 0x1000000},
+		{0, 30 * 1024 * 1024},
+	}, 20*1024*1024), DeepEquals, []Range{{0, 20 * 1024 * 1024}, {20 * 1024 * 1024, 30 * 1024 * 1024}})
+}

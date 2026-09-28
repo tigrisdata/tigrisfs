@@ -811,6 +811,17 @@ func splitRA(rr []Range, maxPart uint64) []Range {
 	res := rr
 	split := false
 	for i := 0; i < len(rr); i++ {
+		if rr[i].End <= rr[i].Start {
+			// An inverted range underflows the unsigned subtraction below into
+			// a huge length, which then takes the split branch and indexes an
+			// empty result. Callers must reject these; drop one rather than
+			// taking the daemon down if a new path ever produces it.
+			if !split {
+				res = append([]Range(nil), rr[0:i]...)
+				split = true
+			}
+			continue
+		}
 		if rr[i].End-rr[i].Start > maxPart {
 			if !split {
 				res = append([]Range(nil), rr[0:i]...)
