@@ -1008,8 +1008,13 @@ func (inode *Inode) DumpThis(fn string, withBuffers bool, noLock bool) (children
 			for _, gap := range inode.dir.Gaps {
 				m := make(map[string]interface{})
 				m["start"] = gap.start
-				m["end"] = gap.end
+				if gap.end == gapEndOfListing {
+					m["end"] = "<end of listing>"
+				} else {
+					m["end"] = gap.end
+				}
 				m["loadTime"] = gap.loadTime
+				gaps = append(gaps, m)
 			}
 			dirData["gaps"] = gaps
 		}
