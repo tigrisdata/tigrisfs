@@ -335,7 +335,7 @@ func (s *S3Backend) detectBucketLocationByHEAD() (err error, isAws bool) {
 	switch resp.StatusCode {
 	case 200:
 		// note that this only happen if the bucket is in us-east-1
-		if len(s.config.Profile) == 0 && os.Getenv("AWS_ACCESS_KEY_ID") == "" && !s.config.UseIAM {
+		if len(s.config.Profile) == 0 && os.Getenv("AWS_ACCESS_KEY_ID") == "" {
 			s.awsConfig.Credentials = credentials.AnonymousCredentials
 			s3Log.Info().Msg("anonymous bucket detected")
 		}
