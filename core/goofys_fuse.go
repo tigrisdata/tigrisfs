@@ -401,7 +401,10 @@ func (fs *GoofysFuse) ReadDir(
 			if n == 0 {
 				break
 			}
-			e.Ref()
+			// readdirPlus will not increase nlookup for . and ..
+			if e != dh.inode && e != dh.inode.Parent {
+				e.Ref()
+			}
 		} else {
 			e.mu.Lock()
 			dirent = makeDirEntry(e, dh.lastExternalOffset)
