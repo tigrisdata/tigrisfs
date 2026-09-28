@@ -225,11 +225,17 @@ func (inode *Inode) OpenCacheFD() error {
 	return nil
 }
 
-func (inode *Inode) loadFromServer(readRanges []Range, readAheadSize uint64, ignoreMemoryLimit bool) {
+func (inode *Inode) loadFromServer(readRanges []Range, readAheadSize uint64, ignoreMemoryLimit bool) error {
 	// Add readahead & merge adjacent requests
 	readRanges = mergeRA(readRanges, readAheadSize, inode.fs.flags.ReadMergeKB*1024)
 	last := &readRanges[len(readRanges)-1]
 	if last.End > inode.knownSize {
+		if last.Start > inode.knownSize {
+			// Clamping End to knownSize would invert the range, and every
+			// consumer below subtracts Start from End on unsigned values.
+			s3Log.Errorf("Trying to read invalid range: offset=%v, inode.knownSize=%v. Possibly file resized remotely.", last.Start, inode.knownSize)
+			return syscall.ERANGE
+		}
 		last.End = inode.knownSize
 	}
 	// Split very large requests into smaller chunks to read in parallel
@@ -250,6 +256,7 @@ func (inode *Inode) loadFromServer(readRanges []Range, readAheadSize uint64, ign
 	for _, rr := range readRanges {
 		go inode.retryRead(cloud, key, rr.Start, rr.End-rr.Start, ignoreMemoryLimit)
 	}
+	return nil
 }
 
 func (inode *Inode) loadFromDisk(diskRanges []Range) (allocated int64, err error) {
@@ -296,7 +303,10 @@ func (inode *Inode) LoadRange(offset, size uint64, readAheadSize uint64, ignoreM
 
 	if len(readRanges) > 0 {
 		miss = true
-		inode.loadFromServer(readRanges, readAheadSize, ignoreMemoryLimit)
+		err = inode.loadFromServer(readRanges, readAheadSize, ignoreMemoryLimit)
+		if err != nil {
+			return miss, err
+		}
 	}
 
 	if inode.fs.flags.CachePath != "" {
@@ -1476,6 +1486,11 @@ func (inode *Inode) flushSmallObject() {
 			// Object is deleted or resized remotely (416). Discard local version
 			s3Log.Warnf("Conflict detected (inode %v): File %v is deleted or resized remotely, discarding local changes", inode.Id, inode.FullName())
 			inode.resetCache()
+			// resetCache clears buffers but not readRanges, and this return
+			// skipped the UnlockRange the success path below performs. A range
+			// left locked never unlocks: ResizeUnlocked loops on IsRangeLocked
+			// calling SyncFile forever, and completeMultipart can never run.
+			inode.UnlockRange(0, sz, true)
 			inode.IsFlushing -= inode.fs.flags.MaxParallelParts
 			atomic.AddInt64(&inode.fs.activeFlushers, -1)
 			inode.fs.WakeupFlusher()
