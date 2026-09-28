@@ -1486,6 +1486,11 @@ func (inode *Inode) flushSmallObject() {
 			// Object is deleted or resized remotely (416). Discard local version
 			s3Log.Warnf("Conflict detected (inode %v): File %v is deleted or resized remotely, discarding local changes", inode.Id, inode.FullName())
 			inode.resetCache()
+			// resetCache clears buffers but not readRanges, and this return
+			// skipped the UnlockRange the success path below performs. A range
+			// left locked never unlocks: ResizeUnlocked loops on IsRangeLocked
+			// calling SyncFile forever, and completeMultipart can never run.
+			inode.UnlockRange(0, sz, true)
 			inode.IsFlushing -= inode.fs.flags.MaxParallelParts
 			atomic.AddInt64(&inode.fs.activeFlushers, -1)
 			inode.fs.WakeupFlusher()
