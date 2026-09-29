@@ -939,6 +939,30 @@ func (dh *DirHandle) CloseDir() error {
 // Recursively resets the DirTime for child directories.
 // ACQUIRES_LOCK(inode.mu)
 func (inode *Inode) resetDirTimeRec() {
+	// Loaded ranges live on the root and let LookUp serve a name from cache
+	// without asking the server. An explicit refresh must defeat that too, or
+	// the entries it just expired are handed straight back.
+	inode.dropLoadedRanges()
+	inode.resetDirTimeRecInner()
+}
+
+// dropLoadedRanges forgets every range the root remembers as already listed.
+// Over-invalidation is deliberate: a refresh is explicit and rare, and the
+// cost is one listing per lookup until ranges are re-learned.
+// LOCKS_EXCLUDED(inode.mu)
+func (inode *Inode) dropLoadedRanges() {
+	root := inode
+	for root.Parent != nil {
+		root = root.Parent
+	}
+	root.mu.Lock()
+	if root.dir != nil {
+		root.dir.Gaps = nil
+	}
+	root.mu.Unlock()
+}
+
+func (inode *Inode) resetDirTimeRecInner() {
 	inode.mu.Lock()
 	inode.SetAttrTime(time.Time{})
 	if inode.dir == nil {
@@ -954,7 +978,7 @@ func (inode *Inode) resetDirTimeRec() {
 	copy(children, inode.dir.Children)
 	inode.mu.Unlock()
 	for _, child := range children {
-		child.resetDirTimeRec()
+		child.resetDirTimeRecInner()
 	}
 }
 

@@ -19,7 +19,10 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"github.com/tigrisdata/tigrisfs/core/cfg"
 )
+
+func cfgDefaultFlagsForTest() *cfg.FlagStorage { return cfg.DefaultFlags() }
 
 func gapRanges(d *DirInodeData) [][2]string {
 	out := make([][2]string, 0, len(d.Gaps))
@@ -107,4 +110,22 @@ func TestCheckGapLoadedDropsStaleRanges(t *testing.T) {
 
 	require.False(t, d.checkGapLoaded("b", time.Now().Add(-time.Minute)), "older than the TTL")
 	require.Empty(t, d.Gaps, "a stale range is evicted on lookup")
+}
+
+// An explicit refresh must forget the loaded ranges too, or LookUp keeps
+// serving the entries the refresh just expired straight from cache.
+func TestResetDirTimeDropsLoadedRanges(t *testing.T) {
+	fs := &Goofys{flags: cfgDefaultFlagsForTest()}
+	root := NewInode(fs, nil, "")
+	root.ToDir()
+	sub := NewInode(fs, root, "sub")
+	sub.ToDir()
+	file := NewInode(fs, sub, "file")
+	root.dir.markGapLoaded("", gapEndOfListing)
+	require.NotEmpty(t, root.dir.Gaps)
+
+	// resetDirTimeRec calls this first; the rest of it needs a mounted fs, so
+	// the wiring is covered by the notify-refresh tests over FUSE.
+	file.dropLoadedRanges()
+	require.Empty(t, root.dir.Gaps, "refreshing any inode drops the root's ranges")
 }
