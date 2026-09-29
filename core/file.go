@@ -75,6 +75,18 @@ func (fs *Goofys) partNum(offset uint64) uint64 {
 	))
 }
 
+func (fs *Goofys) numParts(size uint64) uint64 {
+	part := fs.partNum(size)
+	if part == fs.maxParts() {
+		return part
+	}
+	partOffset, _ := fs.partRange(part)
+	if partOffset < size {
+		part++
+	}
+	return part
+}
+
 func (fs *Goofys) partRange(num uint64) (offset uint64, size uint64) {
 	n := uint64(0)
 	start := uint64(0)
@@ -86,6 +98,13 @@ func (fs *Goofys) partRange(num uint64) (offset uint64, size uint64) {
 		n += s.PartCount
 	}
 	panic(fmt.Sprintf("Part number too large: %v", num))
+}
+
+func (fs *Goofys) maxParts() (parts uint64) {
+	for _, s := range fs.flags.PartSizes {
+		parts += s.PartCount
+	}
+	return parts
 }
 
 func (fs *Goofys) getMaxFileSize() (size uint64) {
@@ -1756,11 +1775,7 @@ func (inode *Inode) completeMultipart() {
 		return
 	}
 	finalSize := inode.Attributes.Size
-	numParts := inode.fs.partNum(finalSize)
-	numPartOffset, _ := inode.fs.partRange(numParts)
-	if numPartOffset < finalSize {
-		numParts++
-	}
+	numParts := inode.fs.numParts(finalSize)
 	err := inode.copyUnmodifiedParts(numParts)
 	if !(inode.CacheState == ST_CREATED || inode.CacheState == ST_MODIFIED) {
 		// State changed, abort this flush (even if we get ENOENT)
@@ -1860,11 +1875,18 @@ func (inode *Inode) SyncFile() (err error) {
 		inode.forceFlush = true
 		inode.mu.Unlock()
 		inode.TryFlush(MAX_FLUSH_PRIORITY)
-		inode.fs.flusherMu.Lock()
-		if inode.fs.flushPending == 0 {
-			inode.fs.flusherCond.Wait()
+		inode.mu.Lock()
+		if inode.CacheState > ST_DEAD && inode.flushError == nil {
+			// Register for the wakeup while flush completion cannot change inode state.
+			inode.fs.flusherMu.Lock()
+			inode.mu.Unlock()
+			if inode.fs.flushPending == 0 {
+				inode.fs.flusherCond.Wait()
+			}
+			inode.fs.flusherMu.Unlock()
+		} else {
+			inode.mu.Unlock()
 		}
-		inode.fs.flusherMu.Unlock()
 	}
 	inode.logFuse("Done SyncFile", err)
 	return

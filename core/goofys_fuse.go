@@ -401,7 +401,15 @@ func (fs *GoofysFuse) ReadDir(
 			if n == 0 {
 				break
 			}
-			e.Ref()
+			// readdirPlus will not increase nlookup for . and .., which
+			// ReadDir yields at internal offsets 0 and 1; the position is
+			// still this entry's, since dh.Next advances it below. Comparing
+			// inode identity instead would race with a rename changing
+			// dh.inode.Parent between ReadDir returning it and the check,
+			// leaving the .. reference this is meant to avoid.
+			if dh.lastInternalOffset > 1 {
+				e.Ref()
+			}
 		} else {
 			e.mu.Lock()
 			dirent = makeDirEntry(e, dh.lastExternalOffset)

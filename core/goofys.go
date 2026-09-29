@@ -845,6 +845,10 @@ func (fs *Goofys) mount(mp *Inode, b *Mount) {
 		mp = dirInode
 	}
 
+	// A mount over an existing directory resets that subtree below, while
+	// holding mp.mu; the root's loaded ranges must go too, and taking the
+	// root lock needs no other lock held, so do it here first.
+	mp.dropLoadedRanges()
 	mp.mu.Lock()
 	defer mp.mu.Unlock()
 
@@ -920,6 +924,7 @@ func (fs *Goofys) RefreshInodeCache(inode *Inode) error {
 	name := inode.Name
 	inodeId := inode.Id
 	inode.mu.Unlock()
+	inode.dropLoadedRanges()
 	inode.resetDirTimeRec()
 	var mappedErr error
 	var notifications []interface{}

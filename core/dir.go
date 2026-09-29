@@ -37,6 +37,11 @@ type SlurpGap struct {
 	loadTime   time.Time
 }
 
+// gapEndOfListing is the end of a loaded range that ran off the end of the
+// listing: nothing follows its start on the server. A lone 0xFF byte cannot
+// occur in a valid UTF-8 key, so it sorts after every key a listing returns.
+const gapEndOfListing = "\xff"
+
 type DirInodeData struct {
 	mountPrefix string
 
@@ -330,8 +335,15 @@ func (parent *Inode) listObjectsSlurp(inode *Inode, startAfter string, sealEnd b
 		nextStartAfter = *obj.Key
 	}
 
-	// Remember this range as already loaded
-	parent.dir.markGapLoaded(NilStr(startWith), nextStartAfter)
+	// Remember this range as already loaded. A listing that ran off the end
+	// proves nothing follows startWith, so record the range as open-ended:
+	// bounding it at the last key returned would send every later lookup of a
+	// name sorting past that key back to the server.
+	loadedEnd := nextStartAfter
+	if seal || !resp.IsTruncated {
+		loadedEnd = gapEndOfListing
+	}
+	parent.dir.markGapLoaded(NilStr(startWith), loadedEnd)
 
 	if lock {
 		parent.mu.Unlock()
@@ -340,38 +352,42 @@ func (parent *Inode) listObjectsSlurp(inode *Inode, startAfter string, sealEnd b
 	return
 }
 
+// markGapLoaded records (start < key <= end] as freshly listed. Gaps stay
+// sorted and disjoint: overlapping ranges are cut down to the parts outside the
+// new one, keeping their own load time, so a narrow re-list inside a wider
+// open-ended range does not discard what is known past its end.
 func (dir *DirInodeData) markGapLoaded(start, end string) {
-	pos := 0
-	if start != "" {
-		pos = sort.Search(len(dir.Gaps), func(i int) bool {
-			return dir.Gaps[i].start >= start
-		})
+	fresh := &SlurpGap{start: start, end: end, loadTime: time.Now()}
+	out := make([]*SlurpGap, 0, len(dir.Gaps)+2)
+	inserted := false
+	for _, g := range dir.Gaps {
+		if g.end <= start {
+			out = append(out, g)
+			continue
+		}
+		if g.start >= end {
+			if !inserted {
+				out = append(out, fresh)
+				inserted = true
+			}
+			out = append(out, g)
+			continue
+		}
+		if g.start < start {
+			out = append(out, &SlurpGap{start: g.start, end: start, loadTime: g.loadTime})
+		}
+		if !inserted {
+			out = append(out, fresh)
+			inserted = true
+		}
+		if g.end > end {
+			out = append(out, &SlurpGap{start: end, end: g.end, loadTime: g.loadTime})
+		}
 	}
-	for pos > 0 && dir.Gaps[pos-1].end > start {
-		pos--
+	if !inserted {
+		out = append(out, fresh)
 	}
-	endPos := sort.Search(len(dir.Gaps), func(i int) bool {
-		return dir.Gaps[i].start >= end
-	})
-	if pos < len(dir.Gaps) && dir.Gaps[pos].start < start {
-		dir.Gaps[pos].end = start
-		pos++
-	}
-	if endPos > 0 && dir.Gaps[endPos-1].end > end {
-		dir.Gaps[endPos-1].start = end
-		endPos--
-	}
-	l := len(dir.Gaps) - (endPos - pos)
-	if pos == endPos {
-		dir.Gaps = append(dir.Gaps, nil)
-	}
-	copy(dir.Gaps[pos+1:], dir.Gaps[endPos:])
-	dir.Gaps[pos] = &SlurpGap{
-		start:    start,
-		end:      end,
-		loadTime: time.Now(),
-	}
-	dir.Gaps = dir.Gaps[0:l]
+	dir.Gaps = out
 }
 
 // LOCKS_REQUIRED(inode.mu)
@@ -920,7 +936,32 @@ func (dh *DirHandle) CloseDir() error {
 	return nil
 }
 
-// Recursively resets the DirTime for child directories.
+// dropLoadedRanges forgets every range the root remembers as already listed.
+// Those ranges let LookUp answer a name from cache without asking the server,
+// so anything that invalidates cached state must drop them too, or the entries
+// it just expired are handed straight back. Over-invalidation is deliberate: a
+// refresh is explicit and rare, and the cost is one listing per lookup until
+// ranges are re-learned.
+//
+// Takes only the root lock, so the caller must hold no inode lock at all: the
+// locking order is parent before child, and the root is everyone's parent.
+// LOCKS_EXCLUDED(any inode.mu)
+func (inode *Inode) dropLoadedRanges() {
+	root := inode
+	for root.Parent != nil {
+		root = root.Parent
+	}
+	root.mu.Lock()
+	if root.dir != nil {
+		root.dir.Gaps = nil
+	}
+	root.mu.Unlock()
+}
+
+// Recursively resets the DirTime for child directories. Does not touch the
+// root's loaded ranges: callers that invalidate cached state drop those
+// themselves, at a point where they hold no lock (see dropLoadedRanges), since
+// mount calls this with the parent's lock held.
 // ACQUIRES_LOCK(inode.mu)
 func (inode *Inode) resetDirTimeRec() {
 	inode.mu.Lock()
@@ -967,6 +1008,7 @@ func (inode *Inode) ResetForUnmount() {
 	inode.mu.Unlock()
 	// Reset DirTime for recursively for this node and all its child nodes.
 	// Note: resetDirTimeRec should be called without holding the lock.
+	inode.dropLoadedRanges()
 	inode.resetDirTimeRec()
 }
 

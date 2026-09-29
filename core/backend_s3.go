@@ -335,7 +335,7 @@ func (s *S3Backend) detectBucketLocationByHEAD() (err error, isAws bool) {
 	switch resp.StatusCode {
 	case 200:
 		// note that this only happen if the bucket is in us-east-1
-		if len(s.config.Profile) == 0 && os.Getenv("AWS_ACCESS_KEY_ID") == "" {
+		if len(s.config.Profile) == 0 && os.Getenv("AWS_ACCESS_KEY_ID") == "" && !s.config.UseIAM {
 			s.awsConfig.Credentials = credentials.AnonymousCredentials
 			s3Log.Info().Msg("anonymous bucket detected")
 		}
@@ -933,12 +933,24 @@ func (s *S3Backend) copyObjectMultipart(size int64, from string, to string, mpuI
 			params.ACL = &s.config.ACL
 		}
 
-		resp, err := s.CreateMultipartUpload(params)
-		if err != nil {
-			return "", err
+		resp, createErr := s.CreateMultipartUpload(params)
+		if createErr != nil {
+			return "", createErr
 		}
 
 		mpuId = *resp.UploadId
+		// This helper owns uploads it creates; callers cannot resume them because
+		// their IDs are not returned on failure. Leave caller-supplied uploads alone.
+		defer func() {
+			if err != nil {
+				_, abortErr := s.AbortMultipartUpload(&s3.AbortMultipartUploadInput{
+					Bucket: &s.bucket, Key: &to, UploadId: &mpuId,
+				})
+				if abortErr != nil {
+					s3Log.Warnf("Abort multipart copy %s: %v", to, abortErr)
+				}
+			}
+		}()
 	}
 
 	partSizes := s.defaultCopyPartSizes(size)
@@ -975,6 +987,10 @@ func (s *S3Backend) copyObjectMultipart(size int64, from string, to string, mpuI
 }
 
 func (s *S3Backend) CopyBlob(param *CopyBlobInput) (*CopyBlobOutput, error) {
+	return s.copyBlob(param, false)
+}
+
+func (s *S3Backend) copyBlob(param *CopyBlobInput, forceMultipart bool) (*CopyBlobOutput, error) {
 	metadataDirective := s3.MetadataDirectiveCopy
 	if param.Metadata != nil {
 		metadataDirective = s3.MetadataDirectiveReplace
@@ -982,12 +998,12 @@ func (s *S3Backend) CopyBlob(param *CopyBlobInput) (*CopyBlobOutput, error) {
 
 	from := s.bucket + "/" + param.Source
 
-	// Copy into the same object is used to just update metadata
-	// and should be very quick regardless of parameters
-	if param.Source != param.Destination {
+	// Prefer the optimized metadata-only self-copy when the backend supports it.
+	// Some S3 implementations enforce the single-copy size limit on self-copies too.
+	if forceMultipart || param.Source != param.Destination {
 
 		// FIXME Remove additional HEAD query
-		if param.Size == nil || param.ETag == nil || (*param.Size > s.config.MultipartCopyThreshold &&
+		if param.Size == nil || param.ETag == nil || ((forceMultipart || *param.Size > s.config.MultipartCopyThreshold) &&
 			(param.Metadata == nil || param.StorageClass == nil)) {
 
 			params := &HeadBlobInput{Key: param.Source}
@@ -1008,7 +1024,7 @@ func (s *S3Backend) CopyBlob(param *CopyBlobInput) (*CopyBlobOutput, error) {
 			param.StorageClass = s.selectStorageClass(param.Size)
 		}
 
-		if !s.gcs && *param.Size > s.config.MultipartCopyThreshold {
+		if !s.gcs && (forceMultipart || *param.Size > s.config.MultipartCopyThreshold) {
 			reqId, err := s.copyObjectMultipart(int64(*param.Size), from, param.Destination, "", param.ETag, param.Metadata, param.StorageClass)
 			if err != nil {
 				return nil, err
@@ -1056,6 +1072,13 @@ func (s *S3Backend) CopyBlob(param *CopyBlobInput) (*CopyBlobOutput, error) {
 	req.Config.HTTPClient.Timeout = 15 * time.Minute
 	err := req.Send()
 	if err != nil {
+		// Some S3 implementations enforce the single-copy size limit even on a
+		// self-copy, which is only used to rewrite metadata. Fall back to a
+		// multipart copy rather than failing the metadata update.
+		var awsErr awserr.Error
+		if !s.gcs && param.Source == param.Destination && errors.As(err, &awsErr) && awsErr.Code() == "EntityTooLarge" {
+			return s.copyBlob(param, true)
+		}
 		s3Log.Warn().Interface("params", params).Err(err).Msg("CopyObject failed")
 		return nil, err
 	}
