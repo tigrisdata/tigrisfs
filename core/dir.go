@@ -936,20 +936,16 @@ func (dh *DirHandle) CloseDir() error {
 	return nil
 }
 
-// Recursively resets the DirTime for child directories.
-// ACQUIRES_LOCK(inode.mu)
-func (inode *Inode) resetDirTimeRec() {
-	// Loaded ranges live on the root and let LookUp serve a name from cache
-	// without asking the server. An explicit refresh must defeat that too, or
-	// the entries it just expired are handed straight back.
-	inode.dropLoadedRanges()
-	inode.resetDirTimeRecInner()
-}
-
 // dropLoadedRanges forgets every range the root remembers as already listed.
-// Over-invalidation is deliberate: a refresh is explicit and rare, and the
-// cost is one listing per lookup until ranges are re-learned.
-// LOCKS_EXCLUDED(inode.mu)
+// Those ranges let LookUp answer a name from cache without asking the server,
+// so anything that invalidates cached state must drop them too, or the entries
+// it just expired are handed straight back. Over-invalidation is deliberate: a
+// refresh is explicit and rare, and the cost is one listing per lookup until
+// ranges are re-learned.
+//
+// Takes only the root lock, so the caller must hold no inode lock at all: the
+// locking order is parent before child, and the root is everyone's parent.
+// LOCKS_EXCLUDED(any inode.mu)
 func (inode *Inode) dropLoadedRanges() {
 	root := inode
 	for root.Parent != nil {
@@ -962,7 +958,12 @@ func (inode *Inode) dropLoadedRanges() {
 	root.mu.Unlock()
 }
 
-func (inode *Inode) resetDirTimeRecInner() {
+// Recursively resets the DirTime for child directories. Does not touch the
+// root's loaded ranges: callers that invalidate cached state drop those
+// themselves, at a point where they hold no lock (see dropLoadedRanges), since
+// mount calls this with the parent's lock held.
+// ACQUIRES_LOCK(inode.mu)
+func (inode *Inode) resetDirTimeRec() {
 	inode.mu.Lock()
 	inode.SetAttrTime(time.Time{})
 	if inode.dir == nil {
@@ -978,7 +979,7 @@ func (inode *Inode) resetDirTimeRecInner() {
 	copy(children, inode.dir.Children)
 	inode.mu.Unlock()
 	for _, child := range children {
-		child.resetDirTimeRecInner()
+		child.resetDirTimeRec()
 	}
 }
 
@@ -1007,6 +1008,7 @@ func (inode *Inode) ResetForUnmount() {
 	inode.mu.Unlock()
 	// Reset DirTime for recursively for this node and all its child nodes.
 	// Note: resetDirTimeRec should be called without holding the lock.
+	inode.dropLoadedRanges()
 	inode.resetDirTimeRec()
 }
 
